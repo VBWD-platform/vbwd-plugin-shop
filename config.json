@@ -1,0 +1,11 @@
+{
+  "currency": "EUR",
+  "stock_block_ttl_minutes": 5,
+  "low_stock_threshold_default": 10,
+  "enable_warehouses": true,
+  "enable_digital_products": true,
+  "order_number_prefix": "ORD",
+  "tax_included_in_price": true,
+  "max_cart_items": 50,
+  "guest_checkout_enabled": true
+}

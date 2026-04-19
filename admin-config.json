@@ -1,0 +1,31 @@
+{
+  "tabs": [
+    {
+      "id": "general",
+      "label": "General",
+      "fields": [
+        { "key": "currency", "label": "Default Currency", "component": "input", "inputType": "text", "description": "ISO 4217 code (EUR, USD, GBP)" },
+        { "key": "order_number_prefix", "label": "Order Number Prefix", "component": "input", "inputType": "text", "description": "Prefix for order numbers (e.g., ORD)" },
+        { "key": "tax_included_in_price", "label": "Tax Included in Price", "component": "checkbox", "description": "Product prices include tax" },
+        { "key": "guest_checkout_enabled", "label": "Guest Checkout", "component": "checkbox", "description": "Allow checkout without account" }
+      ]
+    },
+    {
+      "id": "stock",
+      "label": "Stock Management",
+      "fields": [
+        { "key": "enable_warehouses", "label": "Enable Warehouses", "component": "checkbox", "description": "Multi-warehouse stock tracking" },
+        { "key": "stock_block_ttl_minutes", "label": "Stock Block Duration (min)", "component": "input", "inputType": "number", "min": 1, "max": 30, "description": "Minutes to reserve stock during checkout" },
+        { "key": "low_stock_threshold_default", "label": "Default Low Stock Threshold", "component": "input", "inputType": "number", "min": 0, "max": 1000, "description": "Default threshold for low stock alerts" },
+        { "key": "max_cart_items", "label": "Max Cart Items", "component": "input", "inputType": "number", "min": 1, "max": 200, "description": "Maximum items per cart" }
+      ]
+    },
+    {
+      "id": "products",
+      "label": "Products",
+      "fields": [
+        { "key": "enable_digital_products", "label": "Enable Digital Products", "component": "checkbox", "description": "Allow products that don't require shipping" }
+      ]
+    }
+  ]
+}

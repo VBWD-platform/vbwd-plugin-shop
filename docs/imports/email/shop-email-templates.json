@@ -1,0 +1,58 @@
+[
+  {
+    "event_type": "order.created",
+    "subject": "Order confirmed — {{ order_number }}",
+    "html_body": "<h1>Thank you for your order!</h1><p>Your order <strong>{{ order_number }}</strong> has been confirmed.</p><p>Total: {{ total }} {{ currency }}</p><p><a href=\"{{ order_url }}\">View your order</a></p>",
+    "text_body": "Thank you for your order!\n\nOrder: {{ order_number }}\nTotal: {{ total }} {{ currency }}\n\nView: {{ order_url }}",
+    "is_active": true
+  },
+  {
+    "event_type": "order.shipped",
+    "subject": "Your order {{ order_number }} has been shipped",
+    "html_body": "<h1>Your order is on its way!</h1><p>Order <strong>{{ order_number }}</strong> has been shipped.</p><p>Tracking: <a href=\"{{ tracking_url }}\">{{ tracking_number }}</a></p>",
+    "text_body": "Your order {{ order_number }} has been shipped.\n\nTracking: {{ tracking_number }}\nTrack: {{ tracking_url }}",
+    "is_active": true
+  },
+  {
+    "event_type": "order.completed",
+    "subject": "Order {{ order_number }} completed",
+    "html_body": "<h1>Order complete!</h1><p>Your order <strong>{{ order_number }}</strong> has been marked as completed.</p><p>We hope you enjoy your purchase! <a href=\"{{ review_url }}\">Leave a review</a></p>",
+    "text_body": "Your order {{ order_number }} is complete.\n\nLeave a review: {{ review_url }}",
+    "is_active": true
+  },
+  {
+    "event_type": "order.refunded",
+    "subject": "Refund processed — Order {{ order_number }}",
+    "html_body": "<h1>Refund processed</h1><p>A refund of <strong>{{ refund_amount }} {{ currency }}</strong> has been processed for order {{ order_number }}.</p>",
+    "text_body": "Refund of {{ refund_amount }} {{ currency }} processed for order {{ order_number }}.",
+    "is_active": true
+  },
+  {
+    "event_type": "order.cancelled",
+    "subject": "Order {{ order_number }} has been cancelled",
+    "html_body": "<h1>Order cancelled</h1><p>Your order <strong>{{ order_number }}</strong> has been cancelled.</p><p>If you did not request this cancellation, please <a href=\"{{ support_url }}\">contact support</a>.</p>",
+    "text_body": "Your order {{ order_number }} has been cancelled.\n\nIf you did not request this, contact support: {{ support_url }}",
+    "is_active": true
+  },
+  {
+    "event_type": "order.payment_failed",
+    "subject": "Payment failed for order {{ order_number }}",
+    "html_body": "<h1>Payment failed</h1><p>We were unable to process payment for order <strong>{{ order_number }}</strong>.</p><p>Please <a href=\"{{ retry_url }}\">update your payment method</a> to complete your purchase.</p>",
+    "text_body": "Payment failed for order {{ order_number }}.\n\nRetry: {{ retry_url }}",
+    "is_active": true
+  },
+  {
+    "event_type": "cart.abandoned",
+    "subject": "You left items in your cart!",
+    "html_body": "<h1>Don't forget your items!</h1><p>You have items waiting in your cart.</p><p>{{ cart_items_html }}</p><p><a href=\"{{ cart_url }}\" style=\"display:inline-block;padding:12px 24px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600\">Complete your purchase</a></p>",
+    "text_body": "You left items in your cart!\n\n{{ cart_items_text }}\n\nComplete your purchase: {{ cart_url }}",
+    "is_active": true
+  },
+  {
+    "event_type": "stock.low_alert",
+    "subject": "[Admin] Low stock alert: {{ product_name }}",
+    "html_body": "<h1>Low Stock Alert</h1><p>Product <strong>{{ product_name }}</strong> (SKU: {{ product_sku }}) has only <strong>{{ quantity_available }}</strong> units remaining in warehouse <strong>{{ warehouse_name }}</strong>.</p><p>Threshold: {{ low_stock_threshold }}</p><p><a href=\"{{ admin_stock_url }}\">Manage stock</a></p>",
+    "text_body": "Low Stock Alert\n\nProduct: {{ product_name }} ({{ product_sku }})\nAvailable: {{ quantity_available }}\nWarehouse: {{ warehouse_name }}\nThreshold: {{ low_stock_threshold }}\n\nManage: {{ admin_stock_url }}",
+    "is_active": true
+  }
+]

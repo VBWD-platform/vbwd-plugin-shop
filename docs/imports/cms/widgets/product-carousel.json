@@ -1,0 +1,1 @@
+{"id": "ecw00002-2222-4aaa-bbbb-222222222222", "slug": "product-carousel", "name": "Product Carousel", "widget_type": "vue-component", "content_json": {"component": "ProductCarousel", "max_items": 8}, "source_css": null, "config": null, "sort_order": 0, "is_active": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}

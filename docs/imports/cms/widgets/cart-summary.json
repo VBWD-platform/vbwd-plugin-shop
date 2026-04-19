@@ -1,0 +1,1 @@
+{"id": "ecw00004-4444-4aaa-bbbb-444444444444", "slug": "cart-summary", "name": "Cart Summary", "widget_type": "vue-component", "content_json": {"component": "CartSummary"}, "source_css": null, "config": null, "sort_order": 0, "is_active": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
