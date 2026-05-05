@@ -926,104 +926,29 @@ def _populate_cms_content():
         use_theme_switcher_styles=True,
     )
 
-    # ── Checkout Success Layout + Page (shared by all billing) ──
-    layout_checkout_confirm, created = _get_or_create(
-        CmsLayout,
-        "checkout-confirmation",
-        name="Checkout Confirmation",
-        description="Post-payment confirmation — invoice details, status, support info",
-        areas=[
-            {"name": "header", "type": "header", "label": "Header"},
-            {"name": "confirmation", "type": "vue", "label": "Order Confirmation"},
-            {"name": "content-below", "type": "content", "label": "Support & Info"},
-            {"name": "footer", "type": "footer", "label": "Footer"},
-        ],
-        sort_order=41,
-        is_active=True,
-    )
-    if created:
-        logger.info("[shop] Created CMS layout: checkout-confirmation")
+    # ── Checkout Success Layout + Page (shared by every billing-completing plugin) ──
+    from plugins.checkout.populate_db import populate_checkout_cms
 
-    widget_checkout_confirm, _ = _get_or_create(
-        CmsWidget,
-        "checkout-confirmation",
-        name="Checkout Confirmation",
-        widget_type="vue-component",
-        content_json={"component": "CheckoutConfirmation"},
-        is_active=True,
+    populate_checkout_cms()
+    layout_checkout_confirm = (
+        db.session.query(CmsLayout).filter_by(slug="checkout-confirmation").first()
     )
-    _assign_widget(layout_checkout_confirm, widget_checkout_confirm, "confirmation", 0)
 
     # Shared navigation widgets (header + breadcrumbs + footer) for all shop layouts
     header_nav = db.session.query(CmsWidget).filter_by(slug="header-nav").first()
     footer_nav = db.session.query(CmsWidget).filter_by(slug="footer-nav").first()
     breadcrumbs_widget = db.session.query(CmsWidget).filter_by(slug="breadcrumbs").first()
 
-    for layout in [layout_catalogue, layout_detail, layout_cart, layout_checkout_confirm]:
+    layouts_for_nav = [layout_catalogue, layout_detail, layout_cart]
+    if layout_checkout_confirm:
+        layouts_for_nav.append(layout_checkout_confirm)
+    for layout in layouts_for_nav:
         if header_nav:
             _assign_widget(layout, header_nav, "header", 0)
         if breadcrumbs_widget:
             _assign_widget(layout, breadcrumbs_widget, "breadcrumbs", 0)
         if footer_nav:
             _assign_widget(layout, footer_nav, "footer", 0)
-
-    confirm_page, confirm_created = _get_or_create(
-        CmsPage,
-        "checkout-confirmation",
-        name="Order Confirmation",
-        language="en",
-        content_json={"type": "doc", "content": []},
-        is_published=True,
-        layout_id=layout_checkout_confirm.id,
-        meta_title="Order Confirmation",
-        meta_description="Your order has been received",
-        robots="noindex,nofollow",
-        use_theme_switcher_styles=True,
-    )
-
-    # Seed default "content-below" block with support/FAQ HTML
-    if confirm_created:
-        try:
-            from plugins.cms.src.models.cms_page_content_block import CmsPageContentBlock
-
-            support_html = (
-                '<div class="login-cta" style="text-align:center;padding:32px 24px;background:#fff;'
-                'border-radius:12px;margin-bottom:24px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">'
-                '<p style="color:#666;font-size:15px;margin-bottom:16px">'
-                "Your account is ready. Log in to access your dashboard and manage your orders.</p>"
-                '<a href="/login" style="display:inline-block;padding:14px 40px;background:#1a1a1a;'
-                'color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px">'
-                "Log in to your account</a></div>"
-                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">'
-                '<div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">'
-                '<h3 style="font-size:16px;font-weight:600;margin-bottom:10px">Need help?</h3>'
-                '<ul style="list-style:none;padding:0">'
-                '<li style="padding:6px 0;font-size:14px">Email: <a href="mailto:support@example.com" '
-                'style="color:#3b82f6;text-decoration:none">support@example.com</a></li>'
-                '<li style="padding:6px 0;font-size:14px">Response time: within 24 hours</li></ul></div>'
-                '<div style="background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">'
-                '<h3 style="font-size:16px;font-weight:600;margin-bottom:10px">Frequently asked</h3>'
-                '<ul style="list-style:none;padding:0">'
-                '<li><a href="/faq#delivery" style="display:block;padding:8px 0;font-size:14px;'
-                'color:#1a1a1a;text-decoration:none;border-bottom:1px solid #f0f0f0">Delivery and activation</a></li>'
-                '<li><a href="/faq#returns" style="display:block;padding:8px 0;font-size:14px;'
-                'color:#1a1a1a;text-decoration:none;border-bottom:1px solid #f0f0f0">Return and refund policy</a></li>'
-                '<li><a href="/faq#billing" style="display:block;padding:8px 0;font-size:14px;'
-                'color:#1a1a1a;text-decoration:none">Billing and invoices</a></li></ul></div></div>'
-            )
-
-            db.session.add(
-                CmsPageContentBlock(
-                    id=uuid4(),
-                    page_id=confirm_page.id,
-                    area_name="content-below",
-                    content_html=support_html,
-                    sort_order=0,
-                )
-            )
-            logger.info("[shop] Seeded checkout-confirmation content-below block")
-        except ImportError:
-            pass
 
     # Add "Shop" to header-nav menu + enable cart icon
     header_nav = db.session.query(CmsWidget).filter_by(slug="header-nav").first()
