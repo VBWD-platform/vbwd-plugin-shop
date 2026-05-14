@@ -39,7 +39,9 @@ class WarehouseStockRepository(BaseRepository[WarehouseStock]):
         self, product_id: UUID, variant_id: UUID | None = None
     ) -> int:
         query = self._session.query(
-            func.coalesce(func.sum(WarehouseStock.quantity - WarehouseStock.reserved), 0)
+            func.coalesce(
+                func.sum(WarehouseStock.quantity - WarehouseStock.reserved), 0
+            )
         ).filter_by(product_id=product_id)
         if variant_id:
             query = query.filter_by(variant_id=variant_id)

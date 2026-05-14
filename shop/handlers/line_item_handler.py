@@ -25,9 +25,7 @@ class ShopLineItemHandler(ILineItemHandler):
             and (line_item.extra_data or {}).get("plugin") == "shop"
         )
 
-    def activate_line_item(
-        self, line_item, context: LineItemContext
-    ) -> LineItemResult:
+    def activate_line_item(self, line_item, context: LineItemContext) -> LineItemResult:
         """On payment capture: commit stock + create order."""
         extra = line_item.extra_data or {}
 
@@ -38,9 +36,6 @@ class ShopLineItemHandler(ILineItemHandler):
             )
             from plugins.shop.shop.repositories.stock_block_repository import (
                 StockBlockRepository,
-            )
-            from plugins.shop.shop.repositories.order_repository import (
-                OrderRepository,
             )
             from plugins.shop.shop.models.order import Order, OrderStatus
             from plugins.shop.shop.models.order_item import OrderItem
@@ -77,8 +72,12 @@ class ShopLineItemHandler(ILineItemHandler):
                 id=uuid.uuid4(),
                 order_id=order.id,
                 product_id=uuid.UUID(extra["product_id"]),
-                variant_id=uuid.UUID(extra["variant_id"]) if extra.get("variant_id") else None,
-                warehouse_id=uuid.UUID(extra["warehouse_id"]) if extra.get("warehouse_id") else None,
+                variant_id=uuid.UUID(extra["variant_id"])
+                if extra.get("variant_id")
+                else None,
+                warehouse_id=uuid.UUID(extra["warehouse_id"])
+                if extra.get("warehouse_id")
+                else None,
                 quantity=extra.get("quantity", 1),
                 unit_price=line_item.unit_price,
                 total_price=line_item.total_price,
@@ -92,7 +91,11 @@ class ShopLineItemHandler(ILineItemHandler):
             session.commit()
 
             # Write order_id back to line item metadata
-            line_item.extra_data = {**extra, "order_id": str(order.id), "order_number": order_number}
+            line_item.extra_data = {
+                **extra,
+                "order_id": str(order.id),
+                "order_number": order_number,
+            }
 
             if self._event_bus:
                 self._event_bus.publish(
@@ -120,9 +123,7 @@ class ShopLineItemHandler(ILineItemHandler):
             logger.error("ShopLineItemHandler.activate failed: %s", error)
             return LineItemResult.from_error(str(error))
 
-    def reverse_line_item(
-        self, line_item, context: LineItemContext
-    ) -> LineItemResult:
+    def reverse_line_item(self, line_item, context: LineItemContext) -> LineItemResult:
         """On refund: cancel order + restore stock."""
         extra = line_item.extra_data or {}
         order_id = extra.get("order_id")
@@ -148,7 +149,10 @@ class ShopLineItemHandler(ILineItemHandler):
             order_repo = OrderRepository(session)
             order = order_repo.find_by_id(order_id)
 
-            if order and order.status not in (OrderStatus.CANCELLED, OrderStatus.REFUNDED):
+            if order and order.status not in (
+                OrderStatus.CANCELLED,
+                OrderStatus.REFUNDED,
+            ):
                 order.status = OrderStatus.REFUNDED
                 order_repo.save(order)
 
@@ -161,7 +165,10 @@ class ShopLineItemHandler(ILineItemHandler):
                 for item in order.items:
                     if item.warehouse_id:
                         stock_service.restore_stock(
-                            item.product_id, item.warehouse_id, item.quantity, item.variant_id
+                            item.product_id,
+                            item.warehouse_id,
+                            item.quantity,
+                            item.variant_id,
                         )
 
                 if self._event_bus:
@@ -176,9 +183,7 @@ class ShopLineItemHandler(ILineItemHandler):
             logger.error("ShopLineItemHandler.reverse failed: %s", error)
             return LineItemResult.from_error(str(error))
 
-    def restore_line_item(
-        self, line_item, context: LineItemContext
-    ) -> LineItemResult:
+    def restore_line_item(self, line_item, context: LineItemContext) -> LineItemResult:
         """On refund reversal: re-confirm order + re-decrement stock."""
         extra = line_item.extra_data or {}
         order_id = extra.get("order_id")

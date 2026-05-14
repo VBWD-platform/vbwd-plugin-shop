@@ -32,16 +32,16 @@ def service(stock_repo, block_repo, event_bus):
 
 
 class TestBlockStock:
-    def test_block_stock_succeeds_when_sufficient(self, service, stock_repo, block_repo):
+    def test_block_stock_succeeds_when_sufficient(
+        self, service, stock_repo, block_repo
+    ):
         warehouse_stock = MagicMock()
         warehouse_stock.available = 50
         warehouse_stock.reserved = 0
         warehouse_stock.warehouse_id = uuid4()
         stock_repo.find_best_warehouse.return_value = warehouse_stock
 
-        block = service.block_stock(
-            product_id=uuid4(), quantity=5, session_id="sess-123"
-        )
+        service.block_stock(product_id=uuid4(), quantity=5, session_id="sess-123")
 
         assert warehouse_stock.reserved == 5
         stock_repo.save.assert_called_with(warehouse_stock)
@@ -52,9 +52,7 @@ class TestBlockStock:
         stock_repo.get_total_available.return_value = 2
 
         with pytest.raises(InsufficientStockError, match="Insufficient stock"):
-            service.block_stock(
-                product_id=uuid4(), quantity=10, session_id="sess-456"
-            )
+            service.block_stock(product_id=uuid4(), quantity=10, session_id="sess-456")
 
     def test_block_stock_publishes_event(self, service, stock_repo, event_bus):
         warehouse_stock = MagicMock()
@@ -63,9 +61,7 @@ class TestBlockStock:
         warehouse_stock.warehouse_id = uuid4()
         stock_repo.find_best_warehouse.return_value = warehouse_stock
 
-        service.block_stock(
-            product_id=uuid4(), quantity=3, session_id="sess-789"
-        )
+        service.block_stock(product_id=uuid4(), quantity=3, session_id="sess-789")
 
         event_bus.publish.assert_called_once()
         assert event_bus.publish.call_args[0][0] == "stock.blocked"

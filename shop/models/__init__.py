@@ -8,6 +8,7 @@ from plugins.shop.shop.models.warehouse_stock import WarehouseStock  # noqa: F40
 from plugins.shop.shop.models.stock_block import StockBlock  # noqa: F401
 from plugins.shop.shop.models.order import Order  # noqa: F401
 from plugins.shop.shop.models.order_item import OrderItem  # noqa: F401
+
 # Discount, Coupon, CouponUsage moved to plugins/discount/ plugin
 from plugins.shop.shop.models.review import ProductReview  # noqa: F401
 from plugins.shop.shop.models.wishlist import WishlistItem  # noqa: F401

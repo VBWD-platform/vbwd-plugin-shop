@@ -10,11 +10,7 @@ class OrderItemRepository(BaseRepository[OrderItem]):
         super().__init__(session, OrderItem)
 
     def find_by_order(self, order_id: UUID) -> List[OrderItem]:
-        return (
-            self._session.query(OrderItem)
-            .filter_by(order_id=order_id)
-            .all()
-        )
+        return self._session.query(OrderItem).filter_by(order_id=order_id).all()
 
     def find_non_refunded_by_order(self, order_id: UUID) -> List[OrderItem]:
         return (

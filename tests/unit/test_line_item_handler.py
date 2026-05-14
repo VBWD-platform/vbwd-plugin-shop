@@ -22,7 +22,9 @@ def context():
     invoice.id = uuid4()
     invoice.user_id = uuid4()
     invoice.currency = "EUR"
-    return LineItemContext(invoice=invoice, user_id=invoice.user_id, container=MagicMock())
+    return LineItemContext(
+        invoice=invoice, user_id=invoice.user_id, container=MagicMock()
+    )
 
 
 def _make_line_item(item_type, plugin=None, extra=None):

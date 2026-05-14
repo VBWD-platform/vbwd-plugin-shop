@@ -93,15 +93,9 @@ class ShippingMethodRegistry:
         ]
 
     def get_enabled(self) -> List[IShippingProvider]:
-        return [
-            p
-            for slug, p in self._providers.items()
-            if slug in self._enabled
-        ]
+        return [p for slug, p in self._providers.items() if slug in self._enabled]
 
-    def get_provider(
-        self, slug: str
-    ) -> Optional[IShippingProvider]:
+    def get_provider(self, slug: str) -> Optional[IShippingProvider]:
         if slug in self._enabled:
             return self._providers.get(slug)
         return None

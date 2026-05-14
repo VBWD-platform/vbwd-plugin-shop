@@ -1,5 +1,5 @@
 """Product domain model."""
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 from vbwd.extensions import db
 from vbwd.models.base import BaseModel
 
@@ -70,7 +70,9 @@ class Product(BaseModel):
             "tax_class": self.tax_class,
             "primary_image_url": self.primary_image_url,
             "images": [img.to_dict() for img in self.images],
-            "variants": [v.to_dict() for v in self.variants] if self.has_variants else [],
+            "variants": [v.to_dict() for v in self.variants]
+            if self.has_variants
+            else [],
             "categories": self._serialize_categories(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

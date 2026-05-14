@@ -26,7 +26,12 @@ def populate(app=None):
             id=uuid4(),
             name="Main Warehouse",
             slug="main-warehouse",
-            address={"street": "123 Commerce St", "city": "Berlin", "country": "DE", "zip": "10115"},
+            address={
+                "street": "123 Commerce St",
+                "city": "Berlin",
+                "country": "DE",
+                "zip": "10115",
+            },
             is_active=True,
             is_default=True,
         )
@@ -37,24 +42,46 @@ def populate(app=None):
 
     # --- Categories (8 total, 4 subcategories) ---
     def _cat(slug, name, desc, parent_slug=None, sort=0):
-        return {"slug": slug, "name": name, "description": desc, "parent_slug": parent_slug, "sort_order": sort}
+        return {
+            "slug": slug,
+            "name": name,
+            "description": desc,
+            "parent_slug": parent_slug,
+            "sort_order": sort,
+        }
 
     categories_data = [
         _cat("electronics", "Electronics", "Gadgets, devices and accessories", sort=0),
-        _cat("audio", "Audio", "Headphones, speakers and microphones", "electronics", 0),
-        _cat("cables-adapters", "Cables & Adapters", "USB, HDMI, and power cables", "electronics", 1),
+        _cat(
+            "audio", "Audio", "Headphones, speakers and microphones", "electronics", 0
+        ),
+        _cat(
+            "cables-adapters",
+            "Cables & Adapters",
+            "USB, HDMI, and power cables",
+            "electronics",
+            1,
+        ),
         _cat("clothing", "Clothing", "Fashion and apparel", sort=1),
         _cat("mens", "Men's", "Men's clothing", "clothing", 0),
         _cat("womens", "Women's", "Women's clothing", "clothing", 1),
         _cat("books", "Books", "Physical and digital books", sort=2),
-        _cat("home-garden", "Home & Garden", "Furniture, decor and garden tools", sort=3),
+        _cat(
+            "home-garden", "Home & Garden", "Furniture, decor and garden tools", sort=3
+        ),
     ]
 
     category_map = {}
     for cat_data in categories_data:
-        existing = db.session.query(ProductCategory).filter_by(slug=cat_data["slug"]).first()
+        existing = (
+            db.session.query(ProductCategory).filter_by(slug=cat_data["slug"]).first()
+        )
         if not existing:
-            parent_id = category_map[cat_data["parent_slug"]].id if cat_data.get("parent_slug") else None
+            parent_id = (
+                category_map[cat_data["parent_slug"]].id
+                if cat_data.get("parent_slug")
+                else None
+            )
             category = ProductCategory(
                 id=uuid4(),
                 name=cat_data["name"],
@@ -84,9 +111,24 @@ def populate(app=None):
             "weight": Decimal("0.28"),
             "desc": "Premium ANC headphones, 40h battery, Bluetooth 5.3.",
             "variants": [
-                {"name": "Midnight Black", "sku": "AUD-WHP-001-BLK", "attrs": {"color": "Black"}, "stock": 40},
-                {"name": "Arctic White", "sku": "AUD-WHP-001-WHT", "attrs": {"color": "White"}, "stock": 30},
-                {"name": "Navy Blue", "sku": "AUD-WHP-001-NVY", "attrs": {"color": "Navy"}, "stock": 20},
+                {
+                    "name": "Midnight Black",
+                    "sku": "AUD-WHP-001-BLK",
+                    "attrs": {"color": "Black"},
+                    "stock": 40,
+                },
+                {
+                    "name": "Arctic White",
+                    "sku": "AUD-WHP-001-WHT",
+                    "attrs": {"color": "White"},
+                    "stock": 30,
+                },
+                {
+                    "name": "Navy Blue",
+                    "sku": "AUD-WHP-001-NVY",
+                    "attrs": {"color": "Navy"},
+                    "stock": 20,
+                },
             ],
         },
         {
@@ -108,8 +150,18 @@ def populate(app=None):
             "weight": Decimal("0.45"),
             "desc": "Waterproof IPX7 speaker, 12h playtime.",
             "variants": [
-                {"name": "Black", "sku": "AUD-BTS-001-BLK", "attrs": {"color": "Black"}, "stock": 50},
-                {"name": "Red", "sku": "AUD-BTS-001-RED", "attrs": {"color": "Red"}, "stock": 35},
+                {
+                    "name": "Black",
+                    "sku": "AUD-BTS-001-BLK",
+                    "attrs": {"color": "Black"},
+                    "stock": 50,
+                },
+                {
+                    "name": "Red",
+                    "sku": "AUD-BTS-001-RED",
+                    "attrs": {"color": "Red"},
+                    "stock": 35,
+                },
             ],
         },
         {
@@ -222,14 +274,24 @@ def populate(app=None):
             "weight": Decimal("0.85"),
             "desc": "Hot-swappable switches, RGB backlight, 75% layout.",
             "variants": [
-                {"name": "Red Switch", "sku": "ELEC-MKB-001-RED", "attrs": {"switch": "Red (Linear)"}, "stock": 40},
+                {
+                    "name": "Red Switch",
+                    "sku": "ELEC-MKB-001-RED",
+                    "attrs": {"switch": "Red (Linear)"},
+                    "stock": 40,
+                },
                 {
                     "name": "Brown Switch",
                     "sku": "ELEC-MKB-001-BRN",
                     "attrs": {"switch": "Brown (Tactile)"},
                     "stock": 35,
                 },
-                {"name": "Blue Switch", "sku": "ELEC-MKB-001-BLU", "attrs": {"switch": "Blue (Clicky)"}, "stock": 25},
+                {
+                    "name": "Blue Switch",
+                    "sku": "ELEC-MKB-001-BLU",
+                    "attrs": {"switch": "Blue (Clicky)"},
+                    "stock": 25,
+                },
             ],
         },
         {
@@ -282,11 +344,36 @@ def populate(app=None):
             "weight": Decimal("0.20"),
             "desc": "100% organic cotton, pre-shrunk.",
             "variants": [
-                {"name": "S / White", "sku": "MEN-CTS-001-SW", "attrs": {"size": "S", "color": "White"}, "stock": 30},
-                {"name": "M / White", "sku": "MEN-CTS-001-MW", "attrs": {"size": "M", "color": "White"}, "stock": 40},
-                {"name": "L / White", "sku": "MEN-CTS-001-LW", "attrs": {"size": "L", "color": "White"}, "stock": 35},
-                {"name": "M / Black", "sku": "MEN-CTS-001-MB", "attrs": {"size": "M", "color": "Black"}, "stock": 40},
-                {"name": "L / Black", "sku": "MEN-CTS-001-LB", "attrs": {"size": "L", "color": "Black"}, "stock": 30},
+                {
+                    "name": "S / White",
+                    "sku": "MEN-CTS-001-SW",
+                    "attrs": {"size": "S", "color": "White"},
+                    "stock": 30,
+                },
+                {
+                    "name": "M / White",
+                    "sku": "MEN-CTS-001-MW",
+                    "attrs": {"size": "M", "color": "White"},
+                    "stock": 40,
+                },
+                {
+                    "name": "L / White",
+                    "sku": "MEN-CTS-001-LW",
+                    "attrs": {"size": "L", "color": "White"},
+                    "stock": 35,
+                },
+                {
+                    "name": "M / Black",
+                    "sku": "MEN-CTS-001-MB",
+                    "attrs": {"size": "M", "color": "Black"},
+                    "stock": 40,
+                },
+                {
+                    "name": "L / Black",
+                    "sku": "MEN-CTS-001-LB",
+                    "attrs": {"size": "L", "color": "Black"},
+                    "stock": 30,
+                },
             ],
         },
         {
@@ -333,9 +420,24 @@ def populate(app=None):
             "weight": Decimal("0.45"),
             "desc": "Fleece-lined, front zip, kangaroo pocket.",
             "variants": [
-                {"name": "M / Grey", "sku": "MEN-HZU-001-MG", "attrs": {"size": "M", "color": "Grey"}, "stock": 30},
-                {"name": "L / Grey", "sku": "MEN-HZU-001-LG", "attrs": {"size": "L", "color": "Grey"}, "stock": 25},
-                {"name": "L / Navy", "sku": "MEN-HZU-001-LN", "attrs": {"size": "L", "color": "Navy"}, "stock": 20},
+                {
+                    "name": "M / Grey",
+                    "sku": "MEN-HZU-001-MG",
+                    "attrs": {"size": "M", "color": "Grey"},
+                    "stock": 30,
+                },
+                {
+                    "name": "L / Grey",
+                    "sku": "MEN-HZU-001-LG",
+                    "attrs": {"size": "L", "color": "Grey"},
+                    "stock": 25,
+                },
+                {
+                    "name": "L / Navy",
+                    "sku": "MEN-HZU-001-LN",
+                    "attrs": {"size": "L", "color": "Navy"},
+                    "stock": 20,
+                },
             ],
         },
         {
@@ -380,8 +482,18 @@ def populate(app=None):
                     "attrs": {"size": "M", "color": "Blue Floral"},
                     "stock": 20,
                 },
-                {"name": "M / Rose", "sku": "WMN-FWD-001-MR", "attrs": {"size": "M", "color": "Rose"}, "stock": 15},
-                {"name": "L / Rose", "sku": "WMN-FWD-001-LR", "attrs": {"size": "L", "color": "Rose"}, "stock": 10},
+                {
+                    "name": "M / Rose",
+                    "sku": "WMN-FWD-001-MR",
+                    "attrs": {"size": "M", "color": "Rose"},
+                    "stock": 15,
+                },
+                {
+                    "name": "L / Rose",
+                    "sku": "WMN-FWD-001-LR",
+                    "attrs": {"size": "L", "color": "Rose"},
+                    "stock": 10,
+                },
             ],
         },
         {
@@ -399,9 +511,24 @@ def populate(app=None):
                     "attrs": {"size": "XS", "color": "Black"},
                     "stock": 25,
                 },
-                {"name": "S / Black", "sku": "WMN-YGL-001-SB", "attrs": {"size": "S", "color": "Black"}, "stock": 30},
-                {"name": "M / Black", "sku": "WMN-YGL-001-MB", "attrs": {"size": "M", "color": "Black"}, "stock": 30},
-                {"name": "M / Sage", "sku": "WMN-YGL-001-MS", "attrs": {"size": "M", "color": "Sage"}, "stock": 20},
+                {
+                    "name": "S / Black",
+                    "sku": "WMN-YGL-001-SB",
+                    "attrs": {"size": "S", "color": "Black"},
+                    "stock": 30,
+                },
+                {
+                    "name": "M / Black",
+                    "sku": "WMN-YGL-001-MB",
+                    "attrs": {"size": "M", "color": "Black"},
+                    "stock": 30,
+                },
+                {
+                    "name": "M / Sage",
+                    "sku": "WMN-YGL-001-MS",
+                    "attrs": {"size": "M", "color": "Sage"},
+                    "stock": 20,
+                },
             ],
         },
         {
@@ -543,8 +670,18 @@ def populate(app=None):
             "weight": Decimal("1.20"),
             "desc": "Set of 3 ceramic pots with drainage holes.",
             "variants": [
-                {"name": "White Set", "sku": "HOME-PPS-001-WHT", "attrs": {"color": "White"}, "stock": 30},
-                {"name": "Terracotta Set", "sku": "HOME-PPS-001-TRC", "attrs": {"color": "Terracotta"}, "stock": 25},
+                {
+                    "name": "White Set",
+                    "sku": "HOME-PPS-001-WHT",
+                    "attrs": {"color": "White"},
+                    "stock": 30,
+                },
+                {
+                    "name": "Terracotta Set",
+                    "sku": "HOME-PPS-001-TRC",
+                    "attrs": {"color": "Terracotta"},
+                    "stock": 25,
+                },
             ],
         },
         {
@@ -586,9 +723,24 @@ def populate(app=None):
             "weight": Decimal("0.15"),
             "desc": "Linen blend, 45x45cm, hidden zipper.",
             "variants": [
-                {"name": "Beige", "sku": "HOME-TPC-001-BEI", "attrs": {"color": "Beige"}, "stock": 45},
-                {"name": "Sage Green", "sku": "HOME-TPC-001-SGR", "attrs": {"color": "Sage Green"}, "stock": 35},
-                {"name": "Dusty Rose", "sku": "HOME-TPC-001-DRS", "attrs": {"color": "Dusty Rose"}, "stock": 30},
+                {
+                    "name": "Beige",
+                    "sku": "HOME-TPC-001-BEI",
+                    "attrs": {"color": "Beige"},
+                    "stock": 45,
+                },
+                {
+                    "name": "Sage Green",
+                    "sku": "HOME-TPC-001-SGR",
+                    "attrs": {"color": "Sage Green"},
+                    "stock": 35,
+                },
+                {
+                    "name": "Dusty Rose",
+                    "sku": "HOME-TPC-001-DRS",
+                    "attrs": {"color": "Dusty Rose"},
+                    "stock": 30,
+                },
             ],
         },
         {
@@ -635,7 +787,9 @@ def populate(app=None):
 
     product_index = 0
     for product_data in products_data:
-        existing = db.session.query(Product).filter_by(slug=product_data["slug"]).first()
+        existing = (
+            db.session.query(Product).filter_by(slug=product_data["slug"]).first()
+        )
         if existing:
             continue
 
@@ -707,7 +861,10 @@ def populate(app=None):
                 ProductImage(
                     id=uuid4(),
                     product_id=product.id,
-                    url=f"{IMG}/{width}x{width}/{colors[img_index]}/FFFFFF?text={product_data['sku']}+img{img_index + 1}",
+                    url=(
+                        f"{IMG}/{width}x{width}/{colors[img_index]}/FFFFFF"
+                        f"?text={product_data['sku']}+img{img_index + 1}"
+                    ),
                     alt=f"{product_data['name']} - image {img_index + 1}",
                     sort_order=img_index,
                     is_primary=(img_index == 0),
@@ -937,7 +1094,9 @@ def _populate_cms_content():
     # Shared navigation widgets (header + breadcrumbs + footer) for all shop layouts
     header_nav = db.session.query(CmsWidget).filter_by(slug="header-nav").first()
     footer_nav = db.session.query(CmsWidget).filter_by(slug="footer-nav").first()
-    breadcrumbs_widget = db.session.query(CmsWidget).filter_by(slug="breadcrumbs").first()
+    breadcrumbs_widget = (
+        db.session.query(CmsWidget).filter_by(slug="breadcrumbs").first()
+    )
 
     layouts_for_nav = [layout_catalogue, layout_detail, layout_cart]
     if layout_checkout_confirm:
@@ -963,9 +1122,17 @@ def _populate_cms_content():
         try:
             from plugins.cms.src.models.cms_menu_item import CmsMenuItem
 
-            shop_exists = db.session.query(CmsMenuItem).filter_by(widget_id=header_nav.id, page_slug="shop").first()
+            shop_exists = (
+                db.session.query(CmsMenuItem)
+                .filter_by(widget_id=header_nav.id, page_slug="shop")
+                .first()
+            )
             if not shop_exists:
-                existing_count = db.session.query(CmsMenuItem).filter_by(widget_id=header_nav.id).count()
+                existing_count = (
+                    db.session.query(CmsMenuItem)
+                    .filter_by(widget_id=header_nav.id)
+                    .count()
+                )
                 shop_menu_item = CmsMenuItem(
                     id=uuid4(),
                     widget_id=header_nav.id,
@@ -1009,7 +1176,11 @@ def _populate_email_templates():
         templates = json.load(file_handle)
 
     for template_data in templates:
-        existing = db.session.query(EmailTemplate).filter_by(event_type=template_data["event_type"]).first()
+        existing = (
+            db.session.query(EmailTemplate)
+            .filter_by(event_type=template_data["event_type"])
+            .first()
+        )
         if not existing:
             from uuid import uuid4
 

@@ -54,12 +54,24 @@ class ShopPlugin(BasePlugin):
     def admin_permissions(self):
         return [
             {"key": "shop.products.view", "label": "View products", "group": "Shop"},
-            {"key": "shop.products.manage", "label": "Manage products", "group": "Shop"},
+            {
+                "key": "shop.products.manage",
+                "label": "Manage products",
+                "group": "Shop",
+            },
             {"key": "shop.orders.view", "label": "View orders", "group": "Shop"},
             {"key": "shop.orders.manage", "label": "Manage orders", "group": "Shop"},
             {"key": "shop.stock.manage", "label": "Manage stock", "group": "Shop"},
-            {"key": "shop.categories.manage", "label": "Manage categories", "group": "Shop"},
-            {"key": "shop.warehouses.manage", "label": "Manage warehouses", "group": "Shop"},
+            {
+                "key": "shop.categories.manage",
+                "label": "Manage categories",
+                "group": "Shop",
+            },
+            {
+                "key": "shop.warehouses.manage",
+                "label": "Manage warehouses",
+                "group": "Shop",
+            },
             {"key": "shop.configure", "label": "Shop settings", "group": "Shop"},
         ]
 
@@ -82,9 +94,7 @@ class ShopPlugin(BasePlugin):
             ShopLineItemHandler,
         )
 
-        handler = ShopLineItemHandler(
-            session_factory=db.session, event_bus=event_bus
-        )
+        handler = ShopLineItemHandler(session_factory=db.session, event_bus=event_bus)
         registry.register(handler)
         logger.info("[shop] ShopLineItemHandler registered")
 

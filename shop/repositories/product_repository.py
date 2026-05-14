@@ -1,6 +1,5 @@
 """Product repository."""
 from typing import Optional, List
-from uuid import UUID
 from sqlalchemy import or_
 from vbwd.repositories.base import BaseRepository
 from plugins.shop.shop.models.product import Product

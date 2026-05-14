@@ -1,16 +1,10 @@
 """Unit tests for shop models — Sprint 06a."""
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 from plugins.shop.shop.models.product import Product
-from plugins.shop.shop.models.product_variant import ProductVariant
-from plugins.shop.shop.models.product_image import ProductImage
-from plugins.shop.shop.models.product_category import ProductCategory
-from plugins.shop.shop.models.warehouse import Warehouse
 from plugins.shop.shop.models.warehouse_stock import WarehouseStock
-from plugins.shop.shop.models.stock_block import StockBlock, StockBlockStatus
-from plugins.shop.shop.models.order import Order, OrderStatus
-from plugins.shop.shop.models.order_item import OrderItem
+from plugins.shop.shop.models.stock_block import StockBlockStatus
+from plugins.shop.shop.models.order import OrderStatus
 
 
 class TestWarehouseStockProperties:
@@ -56,8 +50,14 @@ class TestWarehouseStockProperties:
 class TestOrderStatus:
     def test_all_statuses_defined(self):
         expected = [
-            "PENDING", "CONFIRMED", "PROCESSING", "SHIPPED",
-            "DELIVERED", "COMPLETED", "CANCELLED", "REFUNDED",
+            "PENDING",
+            "CONFIRMED",
+            "PROCESSING",
+            "SHIPPED",
+            "DELIVERED",
+            "COMPLETED",
+            "CANCELLED",
+            "REFUNDED",
             "PARTIALLY_REFUNDED",
         ]
         actual = [status.value for status in OrderStatus]

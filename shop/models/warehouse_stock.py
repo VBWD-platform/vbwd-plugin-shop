@@ -10,7 +10,9 @@ class WarehouseStock(BaseModel):
     __tablename__ = "shop_warehouse_stock"
     __table_args__ = (
         db.UniqueConstraint(
-            "warehouse_id", "product_id", "variant_id",
+            "warehouse_id",
+            "product_id",
+            "variant_id",
             name="uq_warehouse_product_variant",
         ),
     )

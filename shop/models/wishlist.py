@@ -9,12 +9,31 @@ class WishlistItem(BaseModel):
 
     __tablename__ = "shop_wishlist_item"
     __table_args__ = (
-        db.UniqueConstraint("user_id", "product_id", "variant_id", name="uq_wishlist_user_product_variant"),
+        db.UniqueConstraint(
+            "user_id",
+            "product_id",
+            "variant_id",
+            name="uq_wishlist_user_product_variant",
+        ),
     )
 
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey("vbwd_user.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id = db.Column(UUID(as_uuid=True), db.ForeignKey("shop_product.id", ondelete="CASCADE"), nullable=False, index=True)
-    variant_id = db.Column(UUID(as_uuid=True), db.ForeignKey("shop_product_variant.id", ondelete="CASCADE"), nullable=True)
+    user_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey("vbwd_user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    product_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey("shop_product.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    variant_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey("shop_product_variant.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     added_at = db.Column(db.DateTime, nullable=False)
 
     def to_dict(self) -> dict:

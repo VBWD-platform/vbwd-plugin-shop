@@ -32,9 +32,7 @@ class StockService:
         self._block_repo = stock_block_repository
         self._event_bus = event_bus
 
-    def get_available(
-        self, product_id: UUID, variant_id: UUID | None = None
-    ) -> int:
+    def get_available(self, product_id: UUID, variant_id: UUID | None = None) -> int:
         return self._stock_repo.get_total_available(product_id, variant_id)
 
     def block_stock(
@@ -148,7 +146,10 @@ class StockService:
         return released_count
 
     def restore_stock(
-        self, product_id: UUID, warehouse_id: UUID, quantity: int,
+        self,
+        product_id: UUID,
+        warehouse_id: UUID,
+        quantity: int,
         variant_id: UUID | None = None,
     ) -> None:
         """Restore stock on refund."""
@@ -188,8 +189,6 @@ class StockService:
             released_count += 1
 
         if released_count:
-            logger.info(
-                "[shop] Released %d expired stock blocks", released_count
-            )
+            logger.info("[shop] Released %d expired stock blocks", released_count)
 
         return released_count

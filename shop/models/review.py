@@ -16,15 +16,32 @@ class ProductReview(BaseModel):
 
     __tablename__ = "shop_product_review"
 
-    product_id = db.Column(UUID(as_uuid=True), db.ForeignKey("shop_product.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey("vbwd_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey("shop_product.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey("vbwd_user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     order_id = db.Column(UUID(as_uuid=True), nullable=True)
     rating = db.Column(db.Integer, nullable=False)
     title = db.Column(db.String(255), nullable=True)
     body = db.Column(db.Text, nullable=True)
     status = db.Column(
-        db.Enum(ReviewStatus, name="shop_reviewstatus", native_enum=True, create_constraint=False),
-        nullable=False, default=ReviewStatus.PENDING, index=True,
+        db.Enum(
+            ReviewStatus,
+            name="shop_reviewstatus",
+            native_enum=True,
+            create_constraint=False,
+        ),
+        nullable=False,
+        default=ReviewStatus.PENDING,
+        index=True,
     )
     is_verified_purchase = db.Column(db.Boolean, nullable=False, default=False)
     admin_response = db.Column(db.Text, nullable=True)

@@ -35,12 +35,17 @@ def list_products():
     else:
         products = repo.find_active(page, per_page)
 
-    return jsonify({
-        "products": [p.to_dict() for p in products],
-        "page": page,
-        "per_page": per_page,
-        "total": repo.count_active(),
-    }), 200
+    return (
+        jsonify(
+            {
+                "products": [p.to_dict() for p in products],
+                "page": page,
+                "per_page": per_page,
+                "total": repo.count_active(),
+            }
+        ),
+        200,
+    )
 
 
 @shop_bp.route("/api/v1/shop/products/<slug>", methods=["GET"])
@@ -57,9 +62,8 @@ def get_product(slug):
     if product.has_variants:
         for variant in product_dict.get("variants", []):
             from uuid import UUID
-            available = stock_repo.get_total_available(
-                product.id, UUID(variant["id"])
-            )
+
+            available = stock_repo.get_total_available(product.id, UUID(variant["id"]))
             variant["stock_available"] = available
     else:
         product_dict["stock_available"] = stock_repo.get_total_available(product.id)
@@ -72,9 +76,14 @@ def list_categories():
     """Category tree."""
     repo = ProductCategoryRepository(db.session)
     categories = repo.find_root_categories()
-    return jsonify({
-        "categories": [c.to_dict() for c in categories],
-    }), 200
+    return (
+        jsonify(
+            {
+                "categories": [c.to_dict() for c in categories],
+            }
+        ),
+        200,
+    )
 
 
 @shop_bp.route("/api/v1/shop/categories/<slug>", methods=["GET"])
@@ -98,10 +107,15 @@ def list_user_orders():
     page = int(request.args.get("page", 1))
     per_page = int(request.args.get("per_page", 20))
     orders = repo.find_by_user(g.user_id, page, per_page)
-    return jsonify({
-        "orders": [o.to_dict() for o in orders],
-        "total": repo.count_by_user(g.user_id),
-    }), 200
+    return (
+        jsonify(
+            {
+                "orders": [o.to_dict() for o in orders],
+                "total": repo.count_by_user(g.user_id),
+            }
+        ),
+        200,
+    )
 
 
 @shop_bp.route("/api/v1/shop/orders/<order_id>", methods=["GET"])
@@ -130,11 +144,16 @@ def admin_list_products():
     page = int(request.args.get("page", 1))
     per_page = int(request.args.get("per_page", 25))
     products = repo.find_all(limit=per_page, offset=(page - 1) * per_page)
-    return jsonify({
-        "products": [p.to_dict() for p in products],
-        "page": page,
-        "per_page": per_page,
-    }), 200
+    return (
+        jsonify(
+            {
+                "products": [p.to_dict() for p in products],
+                "page": page,
+                "per_page": per_page,
+            }
+        ),
+        200,
+    )
 
 
 @shop_bp.route("/api/v1/admin/shop/products", methods=["POST"])
@@ -202,8 +221,19 @@ def admin_update_product(product_id):
         return jsonify({"error": "Product not found"}), 404
 
     data = request.get_json() or {}
-    for field_name in ["name", "description", "sku", "price", "currency", "is_active",
-                       "is_digital", "has_variants", "weight", "dimensions", "tax_class"]:
+    for field_name in [
+        "name",
+        "description",
+        "sku",
+        "price",
+        "currency",
+        "is_active",
+        "is_digital",
+        "has_variants",
+        "weight",
+        "dimensions",
+        "tax_class",
+    ]:
         if field_name in data:
             setattr(product, field_name, data[field_name])
     if "price" in data:
@@ -252,11 +282,16 @@ def admin_list_orders():
     else:
         orders = repo.find_all(limit=per_page, offset=(page - 1) * per_page)
 
-    return jsonify({
-        "orders": [o.to_dict() for o in orders],
-        "page": page,
-        "per_page": per_page,
-    }), 200
+    return (
+        jsonify(
+            {
+                "orders": [o.to_dict() for o in orders],
+                "page": page,
+                "per_page": per_page,
+            }
+        ),
+        200,
+    )
 
 
 @shop_bp.route("/api/v1/admin/shop/orders/<order_id>", methods=["GET"])
@@ -340,7 +375,6 @@ def admin_get_warehouse(warehouse_id):
 
     stock_repo = WarehouseStockRepository(db.session)
     stock_items = stock_repo.find_all()
-    warehouse_stock = [s.to_dict() for s in stock_items if str(s.warehouse_id) == str(warehouse_id)]
 
     # Enrich stock with product names
     product_repo = ProductRepository(db.session)
@@ -456,7 +490,14 @@ def admin_update_category(category_id):
         return jsonify({"error": "Category not found"}), 404
 
     data = request.get_json() or {}
-    for field_name in ["name", "slug", "description", "image_url", "parent_id", "sort_order"]:
+    for field_name in [
+        "name",
+        "slug",
+        "description",
+        "image_url",
+        "parent_id",
+        "sort_order",
+    ]:
         if field_name in data:
             setattr(category, field_name, data[field_name])
     repo.save(category)
@@ -546,16 +587,12 @@ def admin_update_stock(product_id):
 
 def _cms_available():
     """Check if CMS plugin is installed."""
-    try:
-        from plugins.cms.src.services.cms_image_service import CmsImageService  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    from importlib.util import find_spec
+
+    return find_spec("plugins.cms.src.services.cms_image_service") is not None
 
 
-@shop_bp.route(
-    "/api/v1/admin/shop/products/<product_id>/images", methods=["GET"]
-)
+@shop_bp.route("/api/v1/admin/shop/products/<product_id>/images", methods=["GET"])
 @require_auth
 @require_admin
 @require_permission("shop.products.view")
@@ -572,9 +609,7 @@ def admin_list_product_images(product_id):
     return jsonify({"images": [img.to_dict() for img in images]}), 200
 
 
-@shop_bp.route(
-    "/api/v1/admin/shop/products/<product_id>/images", methods=["POST"]
-)
+@shop_bp.route("/api/v1/admin/shop/products/<product_id>/images", methods=["POST"])
 @require_auth
 @require_admin
 @require_permission("shop.products.manage")
@@ -786,6 +821,7 @@ def cart_checkout():
     invoice.subtotal = Decimal("0")
     invoice.total_amount = Decimal("0")
     from vbwd.utils.datetime_utils import utcnow
+
     invoice.invoiced_at = utcnow()
     total = Decimal("0")
 
@@ -799,7 +835,10 @@ def cart_checkout():
             product = product_repo.find_by_id(cart_item["product_id"])
             if not product:
                 db.session.rollback()
-                return jsonify({"error": f"Product {cart_item['product_id']} not found"}), 400
+                return (
+                    jsonify({"error": f"Product {cart_item['product_id']} not found"}),
+                    400,
+                )
 
             quantity = int(cart_item.get("quantity", 1))
             variant_id = cart_item.get("variant_id")
@@ -841,11 +880,16 @@ def cart_checkout():
         invoice.total_amount = total
         db.session.commit()
 
-        return jsonify({
-            "invoice_id": str(invoice.id),
-            "invoice_number": invoice.invoice_number,
-            "total": str(total),
-        }), 201
+        return (
+            jsonify(
+                {
+                    "invoice_id": str(invoice.id),
+                    "invoice_number": invoice.invoice_number,
+                    "total": str(total),
+                }
+            ),
+            201,
+        )
 
     except InsufficientStockError as stock_error:
         db.session.rollback()
@@ -857,6 +901,7 @@ def cart_checkout():
 
 def _shipping_registry():
     from plugins.shop import _shipping_registry as reg
+
     return reg
 
 
@@ -914,14 +959,16 @@ def admin_calculate_shipping_rates():
         try:
             rates = provider.calculate_rate(items, address, currency)
             for rate in rates:
-                all_rates.append({
-                    "provider": rate.provider_slug,
-                    "name": rate.name,
-                    "cost": str(rate.cost),
-                    "currency": rate.currency,
-                    "estimated_days": rate.estimated_days,
-                    "description": rate.description,
-                })
+                all_rates.append(
+                    {
+                        "provider": rate.provider_slug,
+                        "name": rate.name,
+                        "cost": str(rate.cost),
+                        "currency": rate.currency,
+                        "estimated_days": rate.estimated_days,
+                        "description": rate.description,
+                    }
+                )
         except Exception:
             pass  # Provider error — skip
 
