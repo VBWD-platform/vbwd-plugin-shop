@@ -47,8 +47,68 @@ class ShopPlugin(BasePlugin):
     def on_enable(self):
         import plugins.shop.shop.models  # noqa: F401
 
+        # S09 — register the plugin's repositories with the DI container so
+        # routes / handlers / other plugins can resolve them via
+        # container.shop_<name>_repository(). Without this, the 2026-03-27
+        # outage class returns the moment something calls
+        # current_app.container.shop_product_repository().
+        from flask import current_app
+
+        from vbwd.plugins.di_helpers import register_repositories
+        from plugins.shop.shop.repositories.order_item_repository import (
+            OrderItemRepository,
+        )
+        from plugins.shop.shop.repositories.order_repository import OrderRepository
+        from plugins.shop.shop.repositories.product_category_repository import (
+            ProductCategoryRepository,
+        )
+        from plugins.shop.shop.repositories.product_repository import (
+            ProductRepository,
+        )
+        from plugins.shop.shop.repositories.stock_block_repository import (
+            StockBlockRepository,
+        )
+        from plugins.shop.shop.repositories.warehouse_repository import (
+            WarehouseRepository,
+        )
+        from plugins.shop.shop.repositories.warehouse_stock_repository import (
+            WarehouseStockRepository,
+        )
+
+        container = getattr(current_app, "container", None)
+        if container is not None:
+            register_repositories(
+                container,
+                {
+                    "shop_product_repository": ProductRepository,
+                    "shop_product_category_repository": ProductCategoryRepository,
+                    "shop_order_repository": OrderRepository,
+                    "shop_order_item_repository": OrderItemRepository,
+                    "shop_warehouse_repository": WarehouseRepository,
+                    "shop_warehouse_stock_repository": WarehouseStockRepository,
+                    "shop_stock_block_repository": StockBlockRepository,
+                },
+            )
+
     def on_disable(self):
-        pass
+        from flask import current_app
+
+        from vbwd.plugins.di_helpers import unregister_repositories
+
+        container = getattr(current_app, "container", None)
+        if container is not None:
+            unregister_repositories(
+                container,
+                [
+                    "shop_product_repository",
+                    "shop_product_category_repository",
+                    "shop_order_repository",
+                    "shop_order_item_repository",
+                    "shop_warehouse_repository",
+                    "shop_warehouse_stock_repository",
+                    "shop_stock_block_repository",
+                ],
+            )
 
     @property
     def admin_permissions(self):
