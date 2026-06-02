@@ -802,6 +802,7 @@ def cart_checkout():
 
     data = request.get_json() or {}
     items = data.get("items", [])
+    coupon_code = data.get("coupon_code")
     if not items:
         return jsonify({"error": "Cart is empty"}), 400
 
@@ -810,6 +811,34 @@ def cart_checkout():
         WarehouseStockRepository(db.session),
         StockBlockRepository(db.session),
     )
+
+    # Pre-validate the coupon against the cart subtotal BEFORE creating the
+    # invoice / blocking stock — block_stock commits, so a later rollback can't
+    # undo a rejected checkout. The discount line is added after the loop.
+    from vbwd.services.checkout_price_adjustment_registry import (
+        resolve_price_adjustment,
+    )
+
+    preview_subtotal = Decimal("0")
+    for cart_item in items:
+        preview_product = product_repo.find_by_id(cart_item["product_id"])
+        if preview_product:
+            preview_subtotal += preview_product.price * int(
+                cart_item.get("quantity", 1)
+            )
+
+    price_result = resolve_price_adjustment(
+        code=coupon_code,
+        subtotal=preview_subtotal,
+        user_id=str(g.user_id) if g.user_id else None,
+        scope="ECOMMERCE",
+        currency="EUR",
+    )
+    if not price_result.valid:
+        return (
+            jsonify({"error": price_result.error or "Coupon is not valid"}),
+            400,
+        )
 
     # Create invoice
     invoice = UserInvoice()
@@ -875,10 +904,28 @@ def cart_checkout():
             }
             db.session.add(line_item)
 
+        # Apply the (already-validated) coupon discount as a negative line.
+        if price_result.discount_amount > Decimal("0"):
+            discount_line = InvoiceLineItem()
+            discount_line.invoice_id = invoice.id
+            discount_line.item_type = LineItemType.CUSTOM
+            discount_line.item_id = uuid.uuid4()
+            discount_line.description = price_result.label or "Discount"
+            discount_line.quantity = 1
+            discount_line.unit_price = -price_result.discount_amount
+            discount_line.total_price = -price_result.discount_amount
+            discount_line.extra_data = {"discount": True, "coupon_code": coupon_code}
+            db.session.add(discount_line)
+            total -= price_result.discount_amount
+
         invoice.amount = total
         invoice.subtotal = total
         invoice.total_amount = total
         db.session.commit()
+
+        # Redeem the coupon + record the application once the invoice persists.
+        if price_result.on_committed:
+            price_result.on_committed(str(invoice.id), str(g.user_id))
 
         return (
             jsonify(
