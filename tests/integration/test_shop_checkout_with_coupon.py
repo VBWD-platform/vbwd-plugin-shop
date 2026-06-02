@@ -22,6 +22,10 @@ def client(app):
 
 @pytest.fixture
 def discount_ready(db):
+    # The discount plugin is an optional, opt-in collaborator of shop checkout.
+    # This cross-plugin coupon test only runs when discount is installed (the
+    # full local suite); in isolated plugin CI it is absent, so skip not error.
+    pytest.importorskip("plugins.discount.discount.models")
     import plugins.discount.discount.models  # noqa: F401
 
     db.create_all()
