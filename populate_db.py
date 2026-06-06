@@ -1053,7 +1053,6 @@ def _populate_cms_content():
         meta_title="Shop",
         meta_description="Browse our products — electronics, clothing, books and more",
         robots="index,follow",
-        use_theme_switcher_styles=True,
     )
     _get_or_create(
         CmsPage,
@@ -1067,7 +1066,6 @@ def _populate_cms_content():
         meta_title="Product",
         meta_description="Product details",
         robots="index,follow",
-        use_theme_switcher_styles=True,
     )
     _get_or_create(
         CmsPage,
@@ -1080,7 +1078,6 @@ def _populate_cms_content():
         meta_title="Shopping Cart",
         meta_description="Review your cart and proceed to checkout",
         robots="noindex,follow",
-        use_theme_switcher_styles=True,
     )
 
     # ── Checkout Success Layout + Page (shared by every billing-completing plugin) ──
