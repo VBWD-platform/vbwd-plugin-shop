@@ -142,8 +142,13 @@ class ShopOrdersExchanger(EntityExchanger):
 
         rows = self._session.query(Order).all()
         if selector.ids:
-            wanted = set(selector.ids)
-            rows = [row for row in rows if row.order_number in wanted]
+            wanted = {str(value) for value in selector.ids}
+            rows = [
+                row
+                for row in rows
+                if str(row.id) in wanted
+                or (row.order_number and row.order_number in wanted)
+            ]
         serialised = [self._serialise(row, include_pii=include_pii) for row in rows]
         return Envelope(entity_key=self.entity_key, rows=serialised)
 

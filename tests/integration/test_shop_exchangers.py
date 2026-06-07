@@ -88,6 +88,15 @@ class TestOrdersExportOnly:
         with pytest.raises(UnsupportedOperationError):
             exchanger.import_(payload, mode="upsert", dry_run=False)
 
+    def test_export_selected_by_primary_id(self, db):
+        """fe-admin "Export selected" sends the order's primary id (UUID)."""
+        order = self._seed_order(db)
+        exchanger = _exchangers(db.session)["shop_orders"]
+        rows = exchanger.export(
+            ExportSelector(ids=[str(order.id)]), include_pii=False
+        ).rows
+        assert [r["order_number"] for r in rows] == [order.order_number]
+
     def test_export_redacts_address_pii(self, db):
         order = self._seed_order(db)
         exchanger = _exchangers(db.session)["shop_orders"]
