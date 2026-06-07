@@ -44,6 +44,28 @@ class ShopPlugin(BasePlugin):
     def get_url_prefix(self) -> str:
         return ""
 
+    def _register_data_exchangers(self) -> None:
+        """Register the shop entity exchangers into the data-exchange seam.
+
+        Core declares none of these (it stays agnostic); the plugin adds them on
+        enable through the shared ``db.session`` so shop products and
+        (export-only) orders appear on the generic Settings → Import/Export page.
+        Clear-safe: re-registering replaces by key (per-test app re-enable).
+        """
+        import logging
+
+        try:
+            from vbwd.extensions import db
+            from plugins.shop.shop.services.data_exchange.shop_exchangers import (
+                register_shop_exchangers,
+            )
+
+            register_shop_exchangers(db.session)
+        except Exception as exchanger_error:
+            logging.getLogger(__name__).warning(
+                "[shop] Failed to register data exchangers: %s", exchanger_error
+            )
+
     def on_enable(self):
         import plugins.shop.shop.models  # noqa: F401
 
@@ -89,6 +111,8 @@ class ShopPlugin(BasePlugin):
                     "shop_stock_block_repository": StockBlockRepository,
                 },
             )
+
+        self._register_data_exchangers()
 
     def on_disable(self):
         from flask import current_app
