@@ -1197,3 +1197,11 @@ def _populate_email_templates():
 
     db.session.commit()
     logger.info("[shop] Email templates populated")
+
+
+if __name__ == "__main__":
+    from vbwd.app import create_app
+
+    app = create_app()
+    with app.app_context():
+        populate()
