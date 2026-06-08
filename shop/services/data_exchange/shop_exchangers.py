@@ -113,7 +113,7 @@ class ShopOrdersExchanger(EntityExchanger):
     natural_key = "order_number"
     supports_export = True
     supports_import = False
-    supported_formats = frozenset({"json"})
+    supported_formats = frozenset({"json", "csv"})
     secret_fields = frozenset()
     pii_fields = frozenset({"shipping_address", "billing_address"})
 
@@ -203,6 +203,7 @@ def build_shop_exchangers(session: Any) -> List[EntityExchanger]:
                 "product_metadata",
                 "tax_class",
             ],
+            supported_formats=frozenset({"json", "csv"}),
             view_permission=PERM_PRODUCTS_VIEW,
             manage_permission=PERM_PRODUCTS_MANAGE,
         ),

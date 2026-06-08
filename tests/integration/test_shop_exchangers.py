@@ -18,7 +18,7 @@ import uuid
 
 import pytest
 
-from vbwd.services.data_exchange.envelope import build_envelope
+from vbwd.services.data_exchange.envelope import build_envelope, rows_to_csv
 from vbwd.services.data_exchange.port import (
     CLUSTER_SALES,
     ExportSelector,
@@ -112,6 +112,23 @@ class TestOrdersExportOnly:
             ExportSelector(ids=[order.order_number]), include_pii=True
         ).rows
         assert with_pii[0]["shipping_address"]["city"] == "Berlin"
+
+
+class TestCsvExport:
+    """Sales entities list ``csv``; shop_orders' nested address CSV-exports."""
+
+    def test_shop_orders_csv_export_with_nested_address(self, db):
+        order = TestOrdersExportOnly()._seed_order(db)
+        exchanger = _exchangers(db.session)["shop_orders"]
+        assert "csv" in exchanger.supported_formats
+        rows = exchanger.export(
+            ExportSelector(ids=[order.order_number]), include_pii=True
+        ).rows
+        # The nested shipping/billing address dicts must not break the writer.
+        csv_text = rows_to_csv(rows)
+        assert "order_number" in csv_text.splitlines()[0]
+        assert order.order_number in csv_text
+        assert len(csv_text.splitlines()) >= 2
 
 
 class TestRegistration:
