@@ -1,5 +1,5 @@
 """E-commerce routes — public catalog + admin management."""
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, current_app, jsonify, request, g
 from vbwd.extensions import db
 from vbwd.middleware.auth import require_auth, require_admin, require_permission
 
@@ -628,11 +628,11 @@ def admin_upload_product_image(product_id):
 
     from plugins.cms.src.services.cms_image_service import CmsImageService
     from plugins.cms.src.repositories.cms_image_repository import CmsImageRepository
-    from plugins.cms.src.services.file_storage import LocalFileStorage
+    from vbwd.interfaces.file_storage import ManagerBackedFileStorage
     from plugins.shop.shop.models.product_image import ProductImage
 
     image_repo = CmsImageRepository(db.session)
-    storage = LocalFileStorage(base_path="/app/uploads", base_url="/uploads")
+    storage = ManagerBackedFileStorage(current_app.container.filesystem_manager())
     cms_service = CmsImageService(image_repo, storage)
 
     cms_image_data = cms_service.upload_image(file_data, filename, mime_type)
