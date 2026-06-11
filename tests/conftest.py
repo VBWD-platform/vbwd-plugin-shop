@@ -71,7 +71,46 @@ def db(app):
         # so create_all() builds the full set of shop_* tables.
         import plugins.shop.shop.models  # noqa: F401
 
+        # Make setup idempotent regardless of any state a previous (possibly
+        # aborted, possibly crashed) test left behind: drop leftover tables,
+        # then the standalone PG ENUM types MetaData.drop_all() does NOT drop
+        # (userstatus/userrole on the core User model). Left behind, the next
+        # create_all fails with a duplicate pg_type error. Run the cleanup on a
+        # dedicated short-lived autocommit engine that shares no transaction or
+        # locks with the app's pooled connections, so it can never deadlock.
+        _db.drop_all()
+        _drop_leftover_enum_types()
         _db.create_all()
         yield _db
         _db.session.remove()
         _db.drop_all()
+
+
+def _drop_leftover_enum_types() -> None:
+    """Drop the public-schema PG ENUM types ``drop_all()`` leaves behind.
+
+    Uses its own autocommit engine (disposed immediately) rather than the
+    application's pooled engine: the cleanup then holds no long-lived lock and
+    cannot deadlock with the session-scoped app's lingering connections.
+    """
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(_test_db_url(), isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            type_names = (
+                connection.execute(
+                    text(
+                        "SELECT typname FROM pg_type "
+                        "JOIN pg_namespace "
+                        "ON pg_type.typnamespace = pg_namespace.oid "
+                        "WHERE typtype = 'e' AND nspname = 'public'"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for type_name in type_names:
+                connection.execute(text(f'DROP TYPE IF EXISTS "{type_name}" CASCADE'))
+    finally:
+        engine.dispose()
