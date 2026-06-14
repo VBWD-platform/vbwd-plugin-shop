@@ -53,6 +53,23 @@ def app():
         "RATELIMIT_STORAGE_URL": "memory://",
     }
     flask_app = create_app(test_config)
+
+    # Build the full schema exactly ONCE for the whole session, resetting the
+    # public schema first (clearing any table or ENUM type left by a prior
+    # crashed run or a sibling suite sharing this ``*_test`` DB). A per-test
+    # create_all()/drop_all() strands standalone PG ENUM types and races other
+    # suites on the shared catalog — see vbwd/testing/integration_db.py. Each
+    # test then isolates by TRUNCATE-ing data, not by dropping the schema.
+    with flask_app.app_context():
+        from vbwd.extensions import db as _db
+        from vbwd.testing.integration_db import reset_schema_and_create_all
+
+        # Importing the package registers every shop model with SQLAlchemy so
+        # the one-time create_all() builds the full set of shop_* tables.
+        import plugins.shop.shop.models  # noqa: F401
+
+        reset_schema_and_create_all(_db)
+
     yield flask_app
 
     with flask_app.app_context():
@@ -63,28 +80,19 @@ def app():
 
 @pytest.fixture
 def db(app):
-    """Create all shop tables, yield the db handle, drop all after the test."""
+    """Isolate each test by TRUNCATE-ing data; the schema is built once per
+    session in the ``app`` fixture."""
     from vbwd.extensions import db as _db
 
     with app.app_context():
-        # Importing the package registers every shop model with SQLAlchemy
-        # so create_all() builds the full set of shop_* tables.
-        import plugins.shop.shop.models  # noqa: F401
+        from vbwd.testing.integration_db import truncate_all_tables
 
-        # Make setup idempotent regardless of any state a previous (possibly
-        # aborted, possibly crashed) test left behind: drop leftover tables,
-        # then the standalone PG ENUM types MetaData.drop_all() does NOT drop
-        # (userstatus/userrole on the core User model). Left behind, the next
-        # create_all fails with a duplicate pg_type error. Run the cleanup on a
-        # dedicated short-lived autocommit engine that shares no transaction or
-        # locks with the app's pooled connections, so it can never deadlock.
-        _db.drop_all()
-        _drop_leftover_enum_types()
-        _db.create_all()
+        truncate_all_tables(_db)
+        # S85.2: shop pricing goes through the core PriceFactory, which reads
+        # the default currency from the catalog (truncated above) — re-seed it.
         _seed_default_currency(_db)
         yield _db
         _db.session.remove()
-        _db.drop_all()
 
 
 def _seed_default_currency(_db) -> None:
@@ -112,33 +120,3 @@ def _seed_default_currency(_db) -> None:
             )
         )
         _db.session.commit()
-
-
-def _drop_leftover_enum_types() -> None:
-    """Drop the public-schema PG ENUM types ``drop_all()`` leaves behind.
-
-    Uses its own autocommit engine (disposed immediately) rather than the
-    application's pooled engine: the cleanup then holds no long-lived lock and
-    cannot deadlock with the session-scoped app's lingering connections.
-    """
-    from sqlalchemy import create_engine, text
-
-    engine = create_engine(_test_db_url(), isolation_level="AUTOCOMMIT")
-    try:
-        with engine.connect() as connection:
-            type_names = (
-                connection.execute(
-                    text(
-                        "SELECT typname FROM pg_type "
-                        "JOIN pg_namespace "
-                        "ON pg_type.typnamespace = pg_namespace.oid "
-                        "WHERE typtype = 'e' AND nspname = 'public'"
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            for type_name in type_names:
-                connection.execute(text(f'DROP TYPE IF EXISTS "{type_name}" CASCADE'))
-    finally:
-        engine.dispose()
