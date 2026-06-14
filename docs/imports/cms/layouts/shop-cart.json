@@ -1,1 +1,43 @@
-{"id": "ec000003-3333-4aaa-bbbb-333333333333", "slug": "shop-cart", "name": "Shopping Cart", "description": "Layout for the shopping cart page", "areas": [{"name": "header", "type": "header", "label": "Header"}, {"name": "breadcrumbs", "type": "vue", "label": ""}, {"name": "cart", "type": "vue", "label": "Shopping Cart"}, {"name": "footer", "type": "footer", "label": "Footer"}], "sort_order": 32, "is_active": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
+{
+  "vbwd_export": "cms_layouts",
+  "version": 1,
+  "cms_layouts": [
+    {
+      "areas": [
+        {
+          "label": "Header",
+          "name": "header",
+          "type": "header"
+        },
+        {
+          "label": "",
+          "name": "breadcrumbs",
+          "type": "vue"
+        },
+        {
+          "label": "Shopping Cart",
+          "name": "cart",
+          "type": "vue"
+        },
+        {
+          "label": "Footer",
+          "name": "footer",
+          "type": "footer"
+        }
+      ],
+      "description": "Layout for the shopping cart page",
+      "is_active": true,
+      "is_default": false,
+      "name": "Shopping Cart",
+      "slug": "shop-cart",
+      "sort_order": 32,
+      "widget_assignments": [
+        {
+          "area_name": "cart",
+          "sort_order": 0,
+          "widget_slug": "shopping-cart"
+        }
+      ]
+    }
+  ]
+}

@@ -1,1 +1,18 @@
-{"id": "ecw00006-6666-4aaa-bbbb-666666666666", "slug": "product-detail", "name": "Product Detail", "widget_type": "vue-component", "content_json": {"component": "ProductDetail"}, "content_html": null, "source_css": null, "is_active": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
+{
+  "vbwd_export": "cms_widgets",
+  "version": 1,
+  "cms_widgets": [
+    {
+      "slug": "product-detail",
+      "name": "Product Detail",
+      "widget_type": "vue-component",
+      "content_json": {
+        "component": "ProductDetail"
+      },
+      "source_css": null,
+      "config": null,
+      "sort_order": 0,
+      "is_active": true
+    }
+  ]
+}

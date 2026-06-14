@@ -51,3 +51,16 @@ def test_populate_is_idempotent(db):
 
     populate()
     assert db.session.query(Product).count() == first_count
+
+
+def test_seed_catalog_session_taking_and_idempotent(db):
+    """S88: the shared ``seed_catalog(session)`` upserts through the passed
+    session and is idempotent (the reset-demo registry contract)."""
+    from plugins.shop.shop.demo_seed import seed_catalog
+
+    stats = seed_catalog(db.session)
+    assert stats["shop_products"] > 0
+    first_count = db.session.query(Product).count()
+
+    seed_catalog(db.session)
+    assert db.session.query(Product).count() == first_count

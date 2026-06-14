@@ -25,6 +25,18 @@ class ShopLineItemHandler(ILineItemHandler):
             and (line_item.extra_data or {}).get("plugin") == "shop"
         )
 
+    def resolve_catalog_entity_ref(self, line_item):
+        """Source entity ref for the S77 invoice snapshot.
+
+        A shop line carries its product id in ``metadata.product_id`` →
+        ``("shop_product", product_id)``. ``None`` for any line this handler
+        does not own (incl. the discount line, which has no product id).
+        """
+        if not self.can_handle_line_item(line_item, None):
+            return None
+        product_id = (line_item.extra_data or {}).get("product_id")
+        return ("shop_product", str(product_id)) if product_id else None
+
     def activate_line_item(self, line_item, context: LineItemContext) -> LineItemResult:
         """On payment capture: commit stock + create order."""
         extra = line_item.extra_data or {}
@@ -62,7 +74,6 @@ class ShopLineItemHandler(ILineItemHandler):
                 status=OrderStatus.CONFIRMED,
                 subtotal=line_item.total_price,
                 total_amount=line_item.total_price,
-                currency=context.invoice.currency or "EUR",
             )
             session.add(order)
             session.flush()

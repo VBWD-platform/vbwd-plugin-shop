@@ -1,1 +1,35 @@
-{"id": "ecp00002-2222-4aaa-bbbb-222222222222", "slug": "shop-cart", "name": "Shopping Cart", "language": "en", "content_json": {"type": "doc", "content": []}, "content_html": null, "source_css": null, "category_id": null, "is_published": true, "sort_order": 0, "meta_title": "Shopping Cart", "meta_description": "Review your cart and proceed to checkout", "meta_keywords": null, "og_title": null, "og_description": null, "og_image_url": null, "canonical_url": null, "robots": "noindex,follow", "schema_json": null, "layout_id": null, "style_id": null, "use_theme_switcher_styles": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
+{
+  "vbwd_export": "cms_posts",
+  "version": 1,
+  "cms_posts": [
+    {
+      "type": "page",
+      "slug": "shop-cart",
+      "title": "Shopping Cart",
+      "excerpt": null,
+      "content_json": {
+        "type": "doc",
+        "content": []
+      },
+      "content_html": null,
+      "source_css": null,
+      "status": "published",
+      "language": "en",
+      "sort_order": 0,
+      "layout_slug": "shop-cart",
+      "style_slug": null,
+      "meta_title": "Shopping Cart",
+      "meta_description": "Review your cart and proceed to checkout",
+      "meta_keywords": null,
+      "og_title": null,
+      "robots": "noindex,follow",
+      "page_assignments": [
+        {
+          "widget_slug": "shopping-cart",
+          "area_name": "cart",
+          "sort_order": 0
+        }
+      ]
+    }
+  ]
+}

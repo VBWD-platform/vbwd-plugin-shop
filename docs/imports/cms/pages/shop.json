@@ -1,1 +1,40 @@
-{"id": "ecp00001-1111-4aaa-bbbb-111111111111", "slug": "shop", "name": "Shop", "language": "en", "content_json": {"type": "doc", "content": []}, "content_html": null, "source_css": null, "category_id": null, "is_published": true, "sort_order": 0, "meta_title": "Shop", "meta_description": "Browse our products — electronics, clothing, books and more", "meta_keywords": null, "og_title": null, "og_description": null, "og_image_url": null, "canonical_url": null, "robots": "index,follow", "schema_json": null, "layout_id": null, "style_id": null, "use_theme_switcher_styles": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
+{
+  "vbwd_export": "cms_posts",
+  "version": 1,
+  "cms_posts": [
+    {
+      "type": "page",
+      "slug": "shop",
+      "title": "Shop",
+      "excerpt": null,
+      "content_json": {
+        "type": "doc",
+        "content": []
+      },
+      "content_html": null,
+      "source_css": null,
+      "status": "published",
+      "language": "en",
+      "sort_order": 0,
+      "layout_slug": "shop-catalogue",
+      "style_slug": null,
+      "meta_title": "Shop",
+      "meta_description": "Browse our products — electronics, clothing, books and more",
+      "meta_keywords": null,
+      "og_title": null,
+      "robots": "index,follow",
+      "page_assignments": [
+        {
+          "widget_slug": "category-nav",
+          "area_name": "category-nav",
+          "sort_order": 0
+        },
+        {
+          "widget_slug": "product-grid",
+          "area_name": "product-grid",
+          "sort_order": 0
+        }
+      ]
+    }
+  ]
+}

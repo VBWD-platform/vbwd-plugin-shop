@@ -12,8 +12,6 @@ Sized to be the cheapest assertion that defends:
 
 Sprint: docs/dev_log/20260514/sprints/02-shop-ci-fix.md
 """
-from decimal import Decimal
-
 from plugins.shop.shop.models.product import Product
 from plugins.shop.shop.repositories.product_repository import ProductRepository
 
@@ -24,9 +22,7 @@ def test_product_save_then_round_trips_through_real_db(db):
     new_product = Product(
         name="Smoke Widget",
         slug="smoke-widget",
-        price=Decimal("9.99"),
-        price_float=9.99,
-        currency="EUR",
+        price=9.99,
         is_active=True,
     )
     saved_product = repository.save(new_product)
@@ -37,7 +33,7 @@ def test_product_save_then_round_trips_through_real_db(db):
 
     assert fetched_by_id is not None
     assert fetched_by_id.slug == "smoke-widget"
-    assert fetched_by_id.price == Decimal("9.99")
+    assert fetched_by_id.price == 9.99
 
     assert fetched_by_slug is not None
     assert fetched_by_slug.id == saved_product.id

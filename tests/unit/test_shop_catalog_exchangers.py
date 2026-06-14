@@ -139,7 +139,6 @@ class TestProductCategoryLink:
             slug=prod_slug,
             sku=_unique("SKU"),
             price=19,
-            price_float=19.0,
             is_digital=False,
             dimensions={"length": 30, "width": 5},
         )
@@ -168,7 +167,7 @@ class TestProductCategoryLink:
 
         rebuilt = db.session.query(Product).filter(Product.slug == prod_slug).first()
         assert rebuilt is not None
-        assert str(rebuilt.price) == "19.00"
+        assert rebuilt.price == 19.0
         assert rebuilt.is_digital is False
         assert rebuilt.dimensions == {"length": 30, "width": 5}
         assert [c.slug for c in rebuilt.categories] == [cat_slug]
@@ -181,7 +180,6 @@ class TestProductCategoryLink:
                 "slug": prod_slug,
                 "name": "Orphan",
                 "price": 5,
-                "price_float": 5.0,
                 "category_slugs": ["missing-cat"],
             }
         ]
@@ -202,7 +200,6 @@ class TestProductVariantsAndImages:
             slug=prod_slug,
             sku=_unique("SKU"),
             price=49,
-            price_float=49.0,
             has_variants=True,
         )
         product.variants.append(

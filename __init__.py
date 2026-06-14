@@ -114,6 +114,26 @@ class ShopPlugin(BasePlugin):
 
         self._register_data_exchangers()
 
+        # S77 — make products addressable by the generic tags / custom-fields
+        # framework. Registering the entity type lets the core value endpoints
+        # (GET|PUT /admin/shop_product/<id>/{tags,custom-fields}) return 200
+        # (gated by shop.products.manage) instead of 404.
+        from vbwd.services.entity_type_registry import (
+            EntityTypeRegistration,
+            register_entity_type,
+        )
+
+        register_entity_type(
+            EntityTypeRegistration("shop_product", "Product", "shop.products.manage")
+        )
+
+        # S88 — contribute the shop catalog seed to ``flask reset-demo`` through
+        # the agnostic demo-data registry (core imports no shop model).
+        from vbwd.services.demo_data_registry import register_catalog_seeder
+        from plugins.shop.shop.demo_seed import seed_catalog
+
+        register_catalog_seeder(seed_catalog)
+
     def on_disable(self):
         from flask import current_app
 
@@ -133,6 +153,10 @@ class ShopPlugin(BasePlugin):
                     "shop_stock_block_repository",
                 ],
             )
+
+        from vbwd.services.entity_type_registry import unregister_entity_type
+
+        unregister_entity_type("shop_product")
 
     @property
     def admin_permissions(self):

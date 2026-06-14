@@ -316,7 +316,6 @@ class ShopOrdersExchanger(EntityExchanger):
         "subtotal",
         "tax_amount",
         "total_amount",
-        "currency",
         "notes",
     )
 
@@ -404,8 +403,6 @@ def build_shop_exchangers(session: Any) -> List[EntityExchanger]:
                 "description",
                 "sku",
                 "price",
-                "currency",
-                "price_float",
                 "is_active",
                 "is_digital",
                 "has_variants",

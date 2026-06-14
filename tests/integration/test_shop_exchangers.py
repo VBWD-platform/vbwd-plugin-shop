@@ -41,9 +41,7 @@ def _exchangers(session):
 class TestProductsRoundTrip:
     def test_round_trip_by_slug(self, db):
         slug = f"prod-{uuid.uuid4().hex[:8]}"
-        db.session.add(
-            Product(slug=slug, name="Widget", sku="SKU-1", price=12, price_float=12.0)
-        )
+        db.session.add(Product(slug=slug, name="Widget", sku="SKU-1", price=12))
         db.session.commit()
 
         exchanger = _exchangers(db.session)["shop_products"]

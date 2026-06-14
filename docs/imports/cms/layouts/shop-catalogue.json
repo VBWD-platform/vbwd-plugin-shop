@@ -1,1 +1,53 @@
-{"id": "ec000001-1111-4aaa-bbbb-111111111111", "slug": "shop-catalogue", "name": "Shop Catalogue", "description": "Layout for the product catalogue — browse products by category with filters", "areas": [{"name": "header", "type": "header", "label": "Header"}, {"name": "breadcrumbs", "type": "vue", "label": ""}, {"name": "category-nav", "type": "vue", "label": "Category Navigation"}, {"name": "product-grid", "type": "vue", "label": "Product Grid"}, {"name": "footer", "type": "footer", "label": "Footer"}], "sort_order": 30, "is_active": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
+{
+  "vbwd_export": "cms_layouts",
+  "version": 1,
+  "cms_layouts": [
+    {
+      "areas": [
+        {
+          "label": "Header",
+          "name": "header",
+          "type": "header"
+        },
+        {
+          "label": "",
+          "name": "breadcrumbs",
+          "type": "vue"
+        },
+        {
+          "label": "Category Navigation",
+          "name": "category-nav",
+          "type": "vue"
+        },
+        {
+          "label": "Product Grid",
+          "name": "product-grid",
+          "type": "vue"
+        },
+        {
+          "label": "Footer",
+          "name": "footer",
+          "type": "footer"
+        }
+      ],
+      "description": "Layout for the product catalogue — browse products by category with filters",
+      "is_active": true,
+      "is_default": false,
+      "name": "Shop Catalogue",
+      "slug": "shop-catalogue",
+      "sort_order": 30,
+      "widget_assignments": [
+        {
+          "area_name": "category-nav",
+          "sort_order": 0,
+          "widget_slug": "category-nav"
+        },
+        {
+          "area_name": "product-grid",
+          "sort_order": 1,
+          "widget_slug": "product-grid"
+        }
+      ]
+    }
+  ]
+}

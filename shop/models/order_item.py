@@ -32,8 +32,9 @@ class OrderItem(BaseModel):
         nullable=True,
     )
     quantity = db.Column(db.Integer, nullable=False, default=1)
-    unit_price = db.Column(db.Numeric(10, 2), nullable=False)
-    total_price = db.Column(db.Numeric(10, 2), nullable=False)
+    # S85.1 (D4): money columns are full-precision doubles, never rounded in code.
+    unit_price = db.Column(db.Float, nullable=False)
+    total_price = db.Column(db.Float, nullable=False)
     is_refunded = db.Column(db.Boolean, nullable=False, default=False)
     refunded_quantity = db.Column(db.Integer, nullable=False, default=0)
     product_snapshot = db.Column(JSONB, nullable=True, default=dict)

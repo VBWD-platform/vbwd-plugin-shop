@@ -82,8 +82,6 @@ class TestProductToDict:
         product.description = "A test product"
         product.sku = "TEST-001"
         product.price = 29.99
-        product.currency = "EUR"
-        product.price_float = 29.99
         product.is_active = True
         product.is_digital = False
         product.has_variants = False

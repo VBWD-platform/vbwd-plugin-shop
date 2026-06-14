@@ -1,1 +1,53 @@
-{"id": "ec000002-2222-4aaa-bbbb-222222222222", "slug": "shop-product-detail", "name": "Product Detail", "description": "Layout for single product page — image gallery, description, add to cart", "areas": [{"name": "header", "type": "header", "label": "Header"}, {"name": "breadcrumbs", "type": "vue", "label": ""}, {"name": "product-detail", "type": "vue", "label": "Product Detail"}, {"name": "product-carousel", "type": "vue", "label": "Related Products"}, {"name": "footer", "type": "footer", "label": "Footer"}], "sort_order": 31, "is_active": true, "created_at": "2026-03-29T10:00:00.000000", "updated_at": "2026-03-29T10:00:00.000000"}
+{
+  "vbwd_export": "cms_layouts",
+  "version": 1,
+  "cms_layouts": [
+    {
+      "areas": [
+        {
+          "label": "Header",
+          "name": "header",
+          "type": "header"
+        },
+        {
+          "label": "",
+          "name": "breadcrumbs",
+          "type": "vue"
+        },
+        {
+          "label": "Product Detail",
+          "name": "product-detail",
+          "type": "vue"
+        },
+        {
+          "label": "Related Products",
+          "name": "product-carousel",
+          "type": "vue"
+        },
+        {
+          "label": "Footer",
+          "name": "footer",
+          "type": "footer"
+        }
+      ],
+      "description": "Layout for single product page — image gallery, description, add to cart",
+      "is_active": true,
+      "is_default": false,
+      "name": "Product Detail",
+      "slug": "shop-product-detail",
+      "sort_order": 31,
+      "widget_assignments": [
+        {
+          "area_name": "product-carousel",
+          "sort_order": 1,
+          "widget_slug": "product-carousel"
+        },
+        {
+          "area_name": "product-detail",
+          "sort_order": 0,
+          "widget_slug": "product-detail"
+        }
+      ]
+    }
+  ]
+}

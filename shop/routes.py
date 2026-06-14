@@ -12,8 +12,39 @@ from plugins.shop.shop.repositories.warehouse_stock_repository import (
 )
 from plugins.shop.shop.repositories.warehouse_repository import WarehouseRepository
 from plugins.shop.shop.repositories.order_repository import OrderRepository
+from plugins.shop.shop.services.product_pricing_service import ProductPricingService
+from plugins.shop.shop.models.product import validate_price_display_mode
+from vbwd.models.tax import Tax
 
 shop_bp = Blueprint("shop", __name__)
+
+
+class TaxAssignmentError(ValueError):
+    """Raised when a requested ``tax_ids`` entry is unknown or inactive."""
+
+
+def _resolve_active_taxes(tax_ids):
+    """Resolve ``tax_ids`` to active core taxes, deduped and order-preserving.
+
+    Raises ``TaxAssignmentError`` if any id is unknown or its tax is inactive.
+    """
+    deduped = list(dict.fromkeys(tax_ids))
+    if not deduped:
+        return []
+
+    found = {
+        str(tax.id): tax
+        for tax in db.session.query(Tax).filter(Tax.id.in_(deduped)).all()
+    }
+    resolved = []
+    for tax_id in deduped:
+        tax = found.get(str(tax_id))
+        if tax is None:
+            raise TaxAssignmentError(f"Unknown tax: {tax_id}")
+        if not tax.is_active:
+            raise TaxAssignmentError(f"Tax is not active: {tax_id}")
+        resolved.append(tax)
+    return resolved
 
 
 # ── Public: Catalog ──────────────────────────────────────────────────────
@@ -35,10 +66,17 @@ def list_products():
     else:
         products = repo.find_active(page, per_page)
 
+    pricing_service = ProductPricingService(current_app.container.price_factory())
+    product_dicts = []
+    for product in products:
+        product_dict = product.to_dict()
+        product_dict["pricing"] = pricing_service.get_product_pricing_payload(product)
+        product_dicts.append(product_dict)
+
     return (
         jsonify(
             {
-                "products": [p.to_dict() for p in products],
+                "products": product_dicts,
                 "page": page,
                 "per_page": per_page,
                 "total": repo.count_active(),
@@ -58,6 +96,9 @@ def get_product(slug):
 
     stock_repo = WarehouseStockRepository(db.session)
     product_dict = product.to_dict()
+    product_dict["pricing"] = ProductPricingService(
+        current_app.container.price_factory()
+    ).get_product_pricing_payload(product)
 
     if product.has_variants:
         for variant in product_dict.get("variants", []):
@@ -67,6 +108,19 @@ def get_product(slug):
             variant["stock_available"] = available
     else:
         product_dict["stock_available"] = stock_repo.get_total_available(product.id)
+
+    # S77 — append the generic tags / custom fields (opt-in, no model import).
+    # The display components on the card read these keys + field defs (labels +
+    # types) without an extra round trip.
+    from vbwd.services.tags_and_custom_fields import (
+        append_tags_and_custom_fields,
+        resolve_tags_and_custom_fields,
+    )
+
+    append_tags_and_custom_fields(product_dict, "shop_product", product.id)
+    product_dict["custom_field_defs"] = resolve_tags_and_custom_fields().get_field_defs(
+        "shop_product"
+    )
 
     return jsonify({"product": product_dict}), 200
 
@@ -175,22 +229,33 @@ def admin_create_product():
     if repo.find_by_slug(slug):
         return jsonify({"error": f"Product with slug '{slug}' already exists"}), 400
 
+    try:
+        price_display_mode = validate_price_display_mode(data.get("price_display_mode"))
+    except ValueError as mode_error:
+        return jsonify({"error": str(mode_error)}), 400
+
     product = Product(
         id=uuid4(),
         name=data["name"],
         slug=slug,
         description=data.get("description"),
         sku=data.get("sku"),
-        price=data.get("price", 0),
-        currency=data.get("currency", "EUR"),
-        price_float=float(data.get("price", 0)),
+        price=float(data.get("price", 0)),
         is_active=data.get("is_active", True),
         is_digital=data.get("is_digital", False),
         has_variants=data.get("has_variants", False),
         weight=data.get("weight"),
         dimensions=data.get("dimensions", {}),
         tax_class=data.get("tax_class", "standard"),
+        price_display_mode=price_display_mode,
     )
+
+    if "tax_ids" in data:
+        try:
+            product.taxes = _resolve_active_taxes(data["tax_ids"])
+        except TaxAssignmentError as tax_error:
+            return jsonify({"error": str(tax_error)}), 400
+
     repo.save(product)
 
     return jsonify({"product": product.to_dict(), "message": "Product created"}), 201
@@ -225,8 +290,6 @@ def admin_update_product(product_id):
         "name",
         "description",
         "sku",
-        "price",
-        "currency",
         "is_active",
         "is_digital",
         "has_variants",
@@ -237,7 +300,20 @@ def admin_update_product(product_id):
         if field_name in data:
             setattr(product, field_name, data[field_name])
     if "price" in data:
-        product.price_float = float(data["price"])
+        product.price = float(data["price"])
+    if "price_display_mode" in data:
+        try:
+            product.price_display_mode = validate_price_display_mode(
+                data["price_display_mode"]
+            )
+        except ValueError as mode_error:
+            return jsonify({"error": str(mode_error)}), 400
+    if "tax_ids" in data:
+        # Replace-set: the new assignment fully supersedes the old one.
+        try:
+            product.taxes = _resolve_active_taxes(data["tax_ids"])
+        except TaxAssignmentError as tax_error:
+            return jsonify({"error": str(tax_error)}), 400
 
     repo.save(product)
     return jsonify({"product": product.to_dict()}), 200
@@ -797,7 +873,10 @@ def cart_checkout():
     from vbwd.models.enums import InvoiceStatus, LineItemType
     from vbwd.models.invoice import UserInvoice
     from vbwd.models.invoice_line_item import InvoiceLineItem
-    from decimal import Decimal
+    from vbwd.services.invoice_line_item_snapshot import (
+        snapshot_line_item_tags_and_custom_fields,
+    )
+    from decimal import Decimal, ROUND_HALF_UP
     import uuid
 
     data = request.get_json() or {}
@@ -819,13 +898,21 @@ def cart_checkout():
         resolve_price_adjustment,
     )
 
+    # S85.2 (D1/D8): all price math goes through the core PriceFactory. The
+    # charge per item is Price.brutto; the breakdown (netto + per-tax) is what
+    # the line item records.
+    price_factory = current_app.container.price_factory()
+
     preview_subtotal = Decimal("0")
     for cart_item in items:
         preview_product = product_repo.find_by_id(cart_item["product_id"])
         if preview_product:
-            preview_subtotal += preview_product.price * int(
-                cart_item.get("quantity", 1)
+            # S85.2 (D8): the charge is the computed brutto; cast to Decimal so
+            # the coupon preview math stays exact (no float/Decimal mixing).
+            brutto = Decimal(
+                str(price_factory.get_price_from_object(preview_product).brutto)
             )
+            preview_subtotal += brutto * int(cart_item.get("quantity", 1))
 
     price_result = resolve_price_adjustment(
         code=coupon_code,
@@ -853,11 +940,16 @@ def cart_checkout():
 
     invoice.invoiced_at = utcnow()
     total = Decimal("0")
+    # S85.4: roll the net / Σtax up from the per-line tax fields so the invoice
+    # carries a real tax split (the discount line has no breakdown → net only).
+    invoice_net = Decimal("0")
+    invoice_tax = Decimal("0")
 
     db.session.add(invoice)
     db.session.flush()
 
     session_id = str(invoice.id)
+    from vbwd.pricing.line_tax_fields import line_tax_fields
 
     try:
         for cart_item in items:
@@ -880,11 +972,19 @@ def cart_checkout():
                 variant_id=variant_id,
             )
 
-            unit_price = product.price
+            # S85.2 (D8): the charged unit price is the computed brutto. The
+            # invoice is an immutable financial record (Numeric(10,2) columns),
+            # so the brutto float is quantized to cents HERE — the one legitimate
+            # rounding boundary. The live Price VO stays full-precision (D4).
+            computed_price = price_factory.get_price_from_object(product)
+            unit_price = Decimal(str(computed_price.brutto)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
             line_total = unit_price * quantity
             total += line_total
 
             line_item = InvoiceLineItem()
+            line_item.id = uuid.uuid4()
             line_item.invoice_id = invoice.id
             line_item.item_type = LineItemType.CUSTOM
             line_item.item_id = product.id
@@ -892,6 +992,14 @@ def cart_checkout():
             line_item.quantity = quantity
             line_item.unit_price = unit_price
             line_item.total_price = line_total
+            # S85.4: persist the per-rate split as first-class columns (quantity
+            # scales the amounts). Roll the invoice net / tax up from these.
+            tax_fields = line_tax_fields(computed_price, quantity=quantity)
+            line_item.net_amount = tax_fields["net_amount"]
+            line_item.tax_amount = tax_fields["tax_amount"]
+            line_item.tax_breakdown = tax_fields["tax_breakdown"]
+            invoice_net += tax_fields["net_amount"]
+            invoice_tax += tax_fields["tax_amount"]
             line_item.extra_data = {
                 "plugin": "shop",
                 "product_id": str(product.id),
@@ -901,8 +1009,15 @@ def cart_checkout():
                 "is_digital": product.is_digital,
                 "variant_id": str(variant_id) if variant_id else None,
                 "quantity": quantity,
+                # S85.2: persist the per-line netto + per-tax breakdown from the
+                # Price VO. Invoices are an immutable financial record; these
+                # values are the recorded tax split for the charged brutto.
+                "price_breakdown": computed_price.to_dict(),
             }
             db.session.add(line_item)
+            # S77: freeze the product's tags + custom-fields onto the line item
+            # so the invoice stays immutable (no live join to the product).
+            snapshot_line_item_tags_and_custom_fields(line_item)
 
         # Apply the (already-validated) coupon discount as a negative line.
         if price_result.discount_amount > Decimal("0"):
@@ -917,9 +1032,13 @@ def cart_checkout():
             discount_line.extra_data = {"discount": True, "coupon_code": coupon_code}
             db.session.add(discount_line)
             total -= price_result.discount_amount
+            # The discount carries no tax breakdown (net == gross for the line);
+            # it reduces the invoice net so subtotal + tax still == gross total.
+            invoice_net -= price_result.discount_amount
 
         invoice.amount = total
-        invoice.subtotal = total
+        invoice.subtotal = invoice_net
+        invoice.tax_amount = invoice_tax
         invoice.total_amount = total
         db.session.commit()
 

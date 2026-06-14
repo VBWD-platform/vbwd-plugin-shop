@@ -65,7 +65,6 @@ def _make_product_with_stock(db, *, price, qty=100):
         name="Widget",
         slug=f"widget-{uuid4().hex[:8]}",
         price=Decimal(price),
-        price_float=float(price),
         is_active=True,
     )
     warehouse = Warehouse(

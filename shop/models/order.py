@@ -52,14 +52,15 @@ class Order(BaseModel):
     shipping_address = db.Column(JSONB, nullable=True, default=dict)
     billing_address = db.Column(JSONB, nullable=True, default=dict)
     shipping_method = db.Column(db.String(100), nullable=True)
-    shipping_cost = db.Column(db.Numeric(10, 2), nullable=True, default=0)
+    # S85.1 (D4): money columns are full-precision doubles, never rounded in
+    # code; the currency is the global ``default_currency`` (S84).
+    shipping_cost = db.Column(db.Float, nullable=True, default=0)
     tracking_number = db.Column(db.String(255), nullable=True)
     tracking_url = db.Column(db.String(500), nullable=True)
 
-    subtotal = db.Column(db.Numeric(10, 2), nullable=False, default=0)
-    tax_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
-    total_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
-    currency = db.Column(db.String(3), nullable=False, default="EUR")
+    subtotal = db.Column(db.Float, nullable=False, default=0)
+    tax_amount = db.Column(db.Float, nullable=False, default=0)
+    total_amount = db.Column(db.Float, nullable=False, default=0)
     notes = db.Column(db.Text, nullable=True)
 
     items = db.relationship(
@@ -85,7 +86,6 @@ class Order(BaseModel):
             "subtotal": str(self.subtotal),
             "tax_amount": str(self.tax_amount),
             "total_amount": str(self.total_amount),
-            "currency": self.currency,
             "notes": self.notes,
             "items": [item.to_dict() for item in self.items],
             "created_at": self.created_at.isoformat() if self.created_at else None,

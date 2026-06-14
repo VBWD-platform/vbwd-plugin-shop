@@ -81,9 +81,37 @@ def db(app):
         _db.drop_all()
         _drop_leftover_enum_types()
         _db.create_all()
+        _seed_default_currency(_db)
         yield _db
         _db.session.remove()
         _db.drop_all()
+
+
+def _seed_default_currency(_db) -> None:
+    """Seed the baseline EUR currency so the ``PriceFactory`` resolves a code.
+
+    S85.2: shop pricing now goes through the core ``PriceFactory``, which reads
+    the default currency from the catalog (S84). Plugin integration tests build
+    a fresh empty schema, so the baseline row must be seeded — through the model,
+    never raw SQL.
+    """
+    from decimal import Decimal
+    from uuid import uuid4
+
+    from vbwd.models.currency import Currency
+
+    if not _db.session.query(Currency).filter_by(code="EUR").first():
+        _db.session.add(
+            Currency(
+                id=uuid4(),
+                code="EUR",
+                name="Euro",
+                symbol="€",
+                exchange_rate=Decimal("1.0"),
+                decimal_places=2,
+            )
+        )
+        _db.session.commit()
 
 
 def _drop_leftover_enum_types() -> None:
