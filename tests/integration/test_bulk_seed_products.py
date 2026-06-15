@@ -30,17 +30,12 @@ _SEED_CATEGORY_SLUG = "loadtest-shop_products-cat"
 
 def _products_exchanger(session):
     return {
-        exchanger.entity_key: exchanger
-        for exchanger in build_shop_exchangers(session)
+        exchanger.entity_key: exchanger for exchanger in build_shop_exchangers(session)
     }["shop_products"]
 
 
 def _loadtest_products(session):
-    return (
-        session.query(Product)
-        .filter(Product.slug.like("loadtest-%"))
-        .all()
-    )
+    return session.query(Product).filter(Product.slug.like("loadtest-%")).all()
 
 
 class TestBulkSeedProducts:
@@ -64,14 +59,12 @@ class TestBulkSeedProducts:
         exchanger.bulk_seed(10)
         db.session.commit()
 
-        exported = exchanger.export(
-            ExportSelector(ids=None), include_pii=False
-        ).rows
-        loadtest_rows = [
-            row for row in exported if row["slug"].startswith("loadtest-")
-        ]
+        exported = exchanger.export(ExportSelector(ids=None), include_pii=False).rows
+        loadtest_rows = [row for row in exported if row["slug"].startswith("loadtest-")]
         assert len(loadtest_rows) == 10
-        assert all(row["category_slugs"] == [_SEED_CATEGORY_SLUG] for row in loadtest_rows)
+        assert all(
+            row["category_slugs"] == [_SEED_CATEGORY_SLUG] for row in loadtest_rows
+        )
 
         # Wipe the products (the category stays) and re-import the envelope.
         db.session.query(Product).filter(Product.slug.like("loadtest-%")).delete(

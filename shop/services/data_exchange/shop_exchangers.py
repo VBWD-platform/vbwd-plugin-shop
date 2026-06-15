@@ -123,11 +123,7 @@ class _SessionModelRepository:
     def find_natural_keys_with_prefix(self, prefix: str) -> List[str]:
         """Return the natural-key values that start with ``prefix`` (idempotency)."""
         column = getattr(self._model_class, self._natural_key)
-        rows = (
-            self._session.query(column)
-            .filter(column.like(f"{prefix}%"))
-            .all()
-        )
+        rows = self._session.query(column).filter(column.like(f"{prefix}%")).all()
         return [row[0] for row in rows]
 
     def delete_natural_keys_with_prefix(self, prefix: str) -> int:

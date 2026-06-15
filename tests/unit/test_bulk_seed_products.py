@@ -88,7 +88,9 @@ def test_build_instance_attaches_the_one_shared_category() -> None:
     repo = _FakeRepo()
     exchanger = _make_exchanger(repo)
 
-    first = exchanger._build_instance(exchanger._seed_row(0, "loadtest-shop_products-0"))
+    first = exchanger._build_instance(
+        exchanger._seed_row(0, "loadtest-shop_products-0")
+    )
     second = exchanger._build_instance(
         exchanger._seed_row(1, "loadtest-shop_products-1")
     )
