@@ -39,6 +39,34 @@ def _ensure_test_db(url: str) -> None:
         engine.dispose()
 
 
+def _ensure_shop_enabled(flask_app) -> None:
+    """Enable shop (+ its ``email`` dep) so ``on_enable`` runs and registers the
+    shop entity-type / DI repos.
+
+    A fresh per-plugin CI clone has no ``plugins.json``, so the plugin is
+    discovered-but-not-enabled and its registrations never fire (the entity-type
+    and tags/custom-field tests then see nothing). Idempotent — a no-op when the
+    plugin is already enabled (e.g. local dev state via the shared manifest).
+    """
+    from vbwd.plugins.base import PluginStatus
+
+    manager = getattr(flask_app, "plugin_manager", None)
+    if manager is None:
+        return
+    with flask_app.app_context():
+        for name in ("email", "shop"):  # dependency first
+            plugin = manager.get_plugin(name)
+            if plugin is None or plugin.status == PluginStatus.ENABLED:
+                continue
+            try:
+                manager.enable_plugin(name)
+            except ValueError:
+                # A dependency may be absent in this environment; enable directly
+                # so the plugin's own registrations still fire.
+                if plugin.status == PluginStatus.INITIALIZED:
+                    plugin.enable()
+
+
 @pytest.fixture(scope="session")
 def app():
     from vbwd.app import create_app
@@ -67,6 +95,8 @@ def app():
         import plugins.shop.shop.models  # noqa: F401
 
         ensure_schema_and_baseline(_db)
+
+    _ensure_shop_enabled(flask_app)
 
     yield flask_app
 
