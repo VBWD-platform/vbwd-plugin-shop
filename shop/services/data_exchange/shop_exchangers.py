@@ -33,7 +33,10 @@ Engineering requirements (binding, restated): TDD-first; DevOps-first; SOLID
 """
 from typing import Any, List, Optional
 
-from vbwd.services.data_exchange.base_model_exchanger import BaseModelExchanger
+from vbwd.services.data_exchange.base_model_exchanger import (
+    LOADTEST_SLUG_PREFIX,
+    BaseModelExchanger,
+)
 from vbwd.services.data_exchange.port import (
     CLUSTER_SALES,
     EntityExchanger,
@@ -90,6 +93,56 @@ class _SessionModelRepository:
 
     def delete_all(self) -> None:
         self._session.query(self._model_class).delete()
+
+    # ── heavy-load scale hooks (S89.1) ────────────────────────────────────
+    # The base exchanger calls these via ``getattr`` when present so a 100k
+    # seed/export is O(batches), not O(N²). Absent → it falls back to full
+    # ``find_all`` scans (fine for tiny tables, too slow at load-test scale).
+
+    def iter_rows(self, batch_size: int) -> Any:
+        """Yield rows in keyset-free ``yield_per`` pages (bounded memory)."""
+        return (
+            self._session.query(self._model_class)
+            .yield_per(batch_size)
+            .enable_eagerloads(False)
+        )
+
+    def bulk_add(self, instances: List[Any]) -> None:
+        """Insert a batch through the unit of work (one flush per batch).
+
+        Uses ``add_all`` + ``flush`` rather than ``bulk_save_objects`` because
+        the seeded products carry an M2M ``categories`` link that
+        ``bulk_save_objects`` would silently skip (it bypasses relationship
+        cascades). ``add_all`` keeps the batch a single flush — still
+        O(batches), not O(N²) — while persisting the association rows. The
+        caller commits the batch.
+        """
+        self._session.add_all(instances)
+        self._session.flush()
+
+    def find_natural_keys_with_prefix(self, prefix: str) -> List[str]:
+        """Return the natural-key values that start with ``prefix`` (idempotency)."""
+        column = getattr(self._model_class, self._natural_key)
+        rows = (
+            self._session.query(column)
+            .filter(column.like(f"{prefix}%"))
+            .all()
+        )
+        return [row[0] for row in rows]
+
+    def delete_natural_keys_with_prefix(self, prefix: str) -> int:
+        """Delete every row whose natural key starts with ``prefix``. Returns count.
+
+        Scoped to this model and the ``loadtest-`` prefix only, so it never
+        touches real/demo data. ``synchronize_session=False`` keeps the bulk
+        delete a single statement (the session is committed by the caller).
+        """
+        column = getattr(self._model_class, self._natural_key)
+        return (
+            self._session.query(self._model_class)
+            .filter(column.like(f"{prefix}%"))
+            .delete(synchronize_session=False)
+        )
 
 
 class _PermissionMappedModelExchanger(BaseModelExchanger):
@@ -184,9 +237,14 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
     duplicate children.
     """
 
+    # Cache of the one shared ``loadtest-`` category (S89.1 seed); ``None`` until
+    # the first seeded row creates/looks it up. Declared so mypy sees the attr.
+    _seed_category: Optional[Any]
+
     def __init__(self, *, session: Any, **kwargs: Any) -> None:
         super().__init__(session=session, **kwargs)
         self._product_session = session
+        self._seed_category = None
 
     def _serialise_row(self, row: Any, *, include_pii: bool) -> dict:
         result = super()._serialise_row(row, include_pii=include_pii)
@@ -283,6 +341,110 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
         from plugins.shop.shop.models.product_image import ProductImage
 
         return ProductImage
+
+    # ── bulk seed (S89.1) ─────────────────────────────────────────────────
+    # A synthetic product needs a non-null ``name`` + ``price`` and at least one
+    # category link to be a realistic, round-trippable catalog row. The base
+    # ``bulk_seed`` loop builds each instance via ``_build_instance``; this
+    # override returns a valid scalar row + the one shared ``loadtest-`` category
+    # slug, and ``_build_instance`` attaches that category as the M2M link. The
+    # tax M2M is deliberately omitted (a product is valid without an assigned
+    # tax — it falls back to ``tax_class``); noted in the sprint report.
+
+    # A fixed, valid synthetic price (currency is the global default_currency).
+    _SEED_PRODUCT_PRICE = 9.99
+    _SEED_CATEGORY_SLUG = f"{LOADTEST_SLUG_PREFIX}shop_products-cat"
+    _SEED_CATEGORY_NAME = "Load-test products"
+
+    def _seed_row(self, index: int, natural_value: str) -> dict:
+        return {
+            "slug": natural_value,
+            "name": f"Load-test product {index}",
+            "description": f"Synthetic load-test product {index}",
+            "price": self._SEED_PRODUCT_PRICE,
+            "is_active": True,
+            "is_digital": False,
+            "has_variants": False,
+            "sort_order": index,
+            "tax_class": "standard",
+            "category_slugs": [self._SEED_CATEGORY_SLUG],
+        }
+
+    def _build_instance(self, row: dict) -> Any:
+        """Build a ``Product`` and attach the shared load-test category (seed path).
+
+        ``bulk_seed`` is the only caller of ``_build_instance`` for products
+        (import builds the product inline in ``_import_row``); the
+        ``category_slugs`` presence still gates the attach, so this stays
+        seed-only and would never spawn the load-test category on any other path.
+        """
+        if "category_slugs" not in row:
+            return super()._build_instance(row)
+        prepared = dict(row)
+        prepared.pop("category_slugs", None)
+        product = self._model_class(**prepared)
+        product.categories = [self._ensure_seed_prerequisite()]
+        return product
+
+    def _ensure_seed_prerequisite(self) -> Any:
+        """Return the one shared ``loadtest-`` ``ProductCategory``, creating it once.
+
+        Created + committed through the existing ``ProductCategoryRepository``
+        (no raw SQL) and cached on the exchanger so 100k products share one
+        category and a single lookup. Idempotent: an existing category (this
+        run or a prior seed) is reused, never duplicated.
+        """
+        if self._seed_category is not None:
+            return self._seed_category
+        from plugins.shop.shop.models.product_category import ProductCategory
+        from plugins.shop.shop.repositories.product_category_repository import (
+            ProductCategoryRepository,
+        )
+
+        repository = ProductCategoryRepository(self._product_session)
+        category = repository.find_by_slug(self._SEED_CATEGORY_SLUG)
+        if category is None:
+            category = ProductCategory(
+                slug=self._SEED_CATEGORY_SLUG,
+                name=self._SEED_CATEGORY_NAME,
+                description="Shared category for load-test products (S89.1).",
+            )
+            repository.save(category)
+        self._seed_category = category
+        return category
+
+    def _reset_loadtest_rows(self) -> int:
+        """Drop the load-test products, then the shared category if now orphaned.
+
+        Never touches a non-``loadtest-`` category. The cached prerequisite is
+        cleared so the next seed re-creates it cleanly.
+        """
+        deleted = super()._reset_loadtest_rows()
+        self._drop_orphaned_seed_category()
+        self._seed_category = None
+        return deleted
+
+    def _drop_orphaned_seed_category(self) -> None:
+        from plugins.shop.shop.models.product import Product
+        from plugins.shop.shop.models.product_category import ProductCategory
+
+        category = (
+            self._product_session.query(ProductCategory)
+            .filter(ProductCategory.slug == self._SEED_CATEGORY_SLUG)
+            .first()
+        )
+        if category is None:
+            return
+        # Query the DB for any product still in this category rather than reading
+        # the (possibly stale) relationship: the prefix delete ran with
+        # ``synchronize_session=False`` so the loaded collection may be stale.
+        still_referenced = (
+            self._product_session.query(Product.id)
+            .filter(Product.categories.any(ProductCategory.id == category.id))
+            .first()
+        )
+        if still_referenced is None:
+            self._product_session.delete(category)
 
 
 class ShopOrdersExchanger(EntityExchanger):
