@@ -54,21 +54,19 @@ def app():
     }
     flask_app = create_app(test_config)
 
-    # Build the full schema exactly ONCE for the whole session, resetting the
-    # public schema first (clearing any table or ENUM type left by a prior
-    # crashed run or a sibling suite sharing this ``*_test`` DB). A per-test
-    # create_all()/drop_all() strands standalone PG ENUM types and races other
-    # suites on the shared catalog — see vbwd/testing/integration_db.py. Each
-    # test then isolates by TRUNCATE-ing data, not by dropping the schema.
+    # Build the schema once per process (create_all, checkfirst — never drops,
+    # so it cannot wipe data) and commit baseline reference rows once. Each test
+    # then isolates itself via a rolled-back transaction (no TRUNCATE, no DROP) —
+    # see vbwd/testing/integration_db.py.
     with flask_app.app_context():
         from vbwd.extensions import db as _db
-        from vbwd.testing.integration_db import reset_schema_and_create_all
+        from vbwd.testing.integration_db import ensure_schema_and_baseline
 
         # Importing the package registers every shop model with SQLAlchemy so
         # the one-time create_all() builds the full set of shop_* tables.
         import plugins.shop.shop.models  # noqa: F401
 
-        reset_schema_and_create_all(_db)
+        ensure_schema_and_baseline(_db)
 
     yield flask_app
 
@@ -80,27 +78,32 @@ def app():
 
 @pytest.fixture
 def db(app):
-    """Isolate each test by TRUNCATE-ing data; the schema is built once per
-    session in the ``app`` fixture."""
+    """Isolate each test in a rolled-back transaction (self-cleaning, no wipe).
+
+    The schema + baseline reference rows are built once in the ``app`` fixture;
+    each test runs inside a transaction that is rolled back at teardown, so
+    nothing it writes persists. See vbwd/testing/integration_db.py.
+    """
     from vbwd.extensions import db as _db
 
     with app.app_context():
-        from vbwd.testing.integration_db import truncate_all_tables
+        from vbwd.testing.integration_db import rollback_isolation
 
-        truncate_all_tables(_db)
-        # S85.2: shop pricing goes through the core PriceFactory, which reads
-        # the default currency from the catalog (truncated above) — re-seed it.
-        _seed_default_currency(_db)
-        yield _db
-        _db.session.remove()
+        with rollback_isolation(_db):
+            # S85.2: shop pricing goes through the core PriceFactory, which reads
+            # the default currency from the catalog. Seed the baseline EUR row
+            # inside the test's own transaction so the route/repository paths see
+            # it on the same connection; it rolls back with the test's writes.
+            _seed_default_currency(_db)
+            yield _db
 
 
 def _seed_default_currency(_db) -> None:
     """Seed the baseline EUR currency so the ``PriceFactory`` resolves a code.
 
     S85.2: shop pricing now goes through the core ``PriceFactory``, which reads
-    the default currency from the catalog (S84). Plugin integration tests build
-    a fresh empty schema, so the baseline row must be seeded — through the model,
+    the default currency from the catalog (S84). Plugin integration tests seed
+    the baseline row inside the rolled-back transaction — through the model,
     never raw SQL.
     """
     from decimal import Decimal
