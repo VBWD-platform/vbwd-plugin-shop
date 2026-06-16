@@ -31,9 +31,11 @@ Engineering requirements (binding, restated): TDD-first; DevOps-first; SOLID
 (orders export-only raises); clean code; no overengineering. Quality guard:
 ``bin/pre-commit-check.sh --plugin shop --full``.
 """
-from typing import Any, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 from vbwd.services.data_exchange.base_model_exchanger import (
+    EXPORT_CHUNK_SIZE,
     LOADTEST_SLUG_PREFIX,
     BaseModelExchanger,
 )
@@ -277,10 +279,74 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
     # the first seeded row creates/looks it up. Declared so mypy sees the attr.
     _seed_category: Optional[Any]
 
+    # Per-import caches (S89, round 3): preloaded ONCE per import call so the
+    # per-row category resolve + existence check become in-memory lookups, not
+    # 2 SELECTs per row (the 100k import that overran the bench CLI timeout).
+    # ``None`` outside an import → ``_find_category_by_slug`` /
+    # ``find_by_natural_key`` fall back to a direct query (non-bulk callers/tests
+    # are unaffected). Scoped per-call via the override entry points below.
+    _category_cache: Optional[Dict[str, Any]]
+    _existing_product_cache: Optional[Dict[str, Any]]
+
     def __init__(self, *, session: Any, **kwargs: Any) -> None:
         super().__init__(session=session, **kwargs)
         self._product_session = session
         self._seed_category = None
+        self._category_cache = None
+        self._existing_product_cache = None
+
+    # ── per-import caches (S89 round 3) ────────────────────────────────────
+
+    def import_(self, payload: dict, *, mode: str, dry_run: bool) -> ImportResult:
+        with self._import_caches():
+            return super().import_(payload, mode=mode, dry_run=dry_run)
+
+    def import_ndjson(
+        self,
+        lines: Iterable[str],
+        *,
+        mode: str,
+        dry_run: bool,
+        chunk_size: int = EXPORT_CHUNK_SIZE,
+    ) -> ImportResult:
+        with self._import_caches():
+            return super().import_ndjson(
+                lines, mode=mode, dry_run=dry_run, chunk_size=chunk_size
+            )
+
+    @contextmanager
+    def _import_caches(self) -> Iterator[None]:
+        """Build the per-call caches, clear them in ``finally``.
+
+        ONE SELECT loads every category (keyed by slug) and ONE loads every
+        existing product (keyed by natural key), so the per-row resolve +
+        existence check are in-memory. Newly-created products are written into
+        the existence cache by ``_import_row`` so a duplicate natural key within
+        the same envelope still upserts. The caches are torn down on exit so a
+        repeat import never sees stale data.
+        """
+        self._category_cache = self._load_category_cache()
+        self._existing_product_cache = self._load_existing_product_cache()
+        try:
+            yield
+        finally:
+            self._category_cache = None
+            self._existing_product_cache = None
+
+    def _load_category_cache(self) -> Dict[str, Any]:
+        from plugins.shop.shop.models.product_category import ProductCategory
+
+        categories = self._product_session.query(ProductCategory).all()
+        return {category.slug: category for category in categories}
+
+    def _load_existing_product_cache(self) -> Dict[str, Any]:
+        natural_key = self.natural_key
+        products = self._product_session.query(self._model_class).all()
+        return {
+            getattr(product, natural_key): product
+            for product in products
+            if getattr(product, natural_key) is not None
+        }
 
     def _serialise_row(self, row: Any, *, include_pii: bool) -> dict:
         result = super()._serialise_row(row, include_pii=include_pii)
@@ -322,7 +388,7 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
             )
             return
 
-        existing = self._repository.find_by_natural_key(key_value)
+        existing = self._lookup_existing_product(key_value)
         scalar_row = {
             field_name: value
             for field_name, value in row.items()
@@ -339,7 +405,25 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
                 product = self._model_class(**scalar_row)
                 self._repository.add(product)
                 self._apply_links(product, categories, row)
+                self._remember_product(key_value, product)
             result.created += 1
+
+    def _lookup_existing_product(self, key_value: Any) -> Any:
+        """Find the existing product by natural key — via the preload when active.
+
+        During an import the existence cache (one preload SELECT) answers in
+        memory; outside an import (non-bulk callers/tests) it falls back to the
+        repository's direct query, so those paths are unaffected.
+        """
+        if self._existing_product_cache is not None:
+            return self._existing_product_cache.get(key_value)
+        return self._repository.find_by_natural_key(key_value)
+
+    def _remember_product(self, key_value: Any, product: Any) -> None:
+        """Record a just-created product so a duplicate natural key in the same
+        envelope upserts onto it (the cache stays consistent with the DB)."""
+        if self._existing_product_cache is not None:
+            self._existing_product_cache[key_value] = product
 
     def _apply_links(self, product: Any, categories: list, row: dict) -> None:
         product.categories = list(categories)
@@ -377,6 +461,14 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
         }
 
     def _find_category_by_slug(self, slug: str) -> Any:
+        """Resolve a category by slug — via the preload cache when active.
+
+        During an import the category cache (one preload SELECT) answers in
+        memory; outside an import it falls back to the direct query so non-bulk
+        callers/tests keep working.
+        """
+        if self._category_cache is not None:
+            return self._category_cache.get(slug)
         from plugins.shop.shop.models.product_category import ProductCategory
 
         return (
@@ -468,6 +560,10 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
             )
             repository.save(category)
         self._seed_category = category
+        # Keep the per-import category cache consistent so a self-healed seed
+        # category is served in-memory for the remaining rows (no per-row query).
+        if self._category_cache is not None:
+            self._category_cache[self._SEED_CATEGORY_SLUG] = category
         return category
 
     @staticmethod

@@ -37,6 +37,13 @@ from plugins.shop.shop.services.data_exchange.shop_exchangers import (
 
 _SEED_CATEGORY_SLUG = "loadtest-shop_products-cat"
 
+# A small FIXED ceiling on per-table SELECTs during an import: the two cache
+# preloads plus a handful of relationship lazy-loads (variants/images/tax/
+# categories) that do NOT scale with the row count. Proven constant at N=100 and
+# N=300; well under any per-row (~N) regression, so a return to per-row queries
+# still trips the assertion.
+_MAX_FIXED_SELECTS = 20
+
 
 def _products_exchanger(session):
     return {
@@ -82,6 +89,15 @@ def _count_deletes_for(statements, table_name):
         1
         for statement in statements
         if "DELETE" in statement.upper() and table_name in statement
+    )
+
+
+def _count_selects_for(statements, table_name):
+    """How many recorded statements are a SELECT touching ``table_name``."""
+    return sum(
+        1
+        for statement in statements
+        if statement.upper().lstrip().startswith("SELECT") and table_name in statement
     )
 
 
@@ -155,6 +171,115 @@ class TestImportFlushBound:
         assert len(product.variants) == 1
         assert product.variants[0].sku == "loadtest-sku-small"
         assert len(product.images) == 1
+
+
+class TestImportSelectBound:
+    """The upsert import must NOT issue per-row SELECTs (the S89 100k bottleneck).
+
+    The old ``_import_row`` did two SELECTs per row — one category lookup and one
+    ``find_by_natural_key`` existence check — so 100k rows = ~200k sequential
+    round-trips, blowing past the bench's 1800s CLI cell timeout. The fix
+    preloads both into per-import caches (one SELECT each), so the SELECT count
+    against ``product`` / ``product_category`` is bounded, NOT ~2N.
+    """
+
+    def test_cold_upsert_into_empty_table_is_o1_selects(self, db):
+        """Upsert N rows into an empty table: SELECTs do NOT grow ~2N."""
+        row_count = 300
+        exchanger = _products_exchanger(db.session)
+        exchanger._ensure_seed_prerequisite()
+        db.session.commit()
+
+        rows = [
+            {
+                "slug": f"loadtest-shop_products-{index}",
+                "name": f"Load-test product {index}",
+                "price": 9.99,
+                "category_slugs": [_SEED_CATEGORY_SLUG],
+            }
+            for index in range(row_count)
+        ]
+        payload = build_envelope("shop_products", rows, instance="test")
+
+        import_exchanger = _products_exchanger(db.session)
+        engine = db.session.get_bind()
+        with _record_statements(engine) as statements:
+            result = import_exchanger.import_(payload, mode="upsert", dry_run=False)
+
+        assert result.created == row_count
+        category_selects = _count_selects_for(statements, ProductCategory.__tablename__)
+        product_selects = _count_selects_for(statements, Product.__tablename__)
+        # Per-row would be ~row_count each; the cache makes both O(1) preloads.
+        assert category_selects <= _MAX_FIXED_SELECTS, (
+            f"expected O(1) category SELECTs, got {category_selects} for "
+            f"{row_count} rows (regressed to per-row category lookup?)"
+        )
+        assert product_selects <= _MAX_FIXED_SELECTS, (
+            f"expected O(1) existence SELECTs, got {product_selects} for "
+            f"{row_count} rows (regressed to per-row find_by_natural_key?)"
+        )
+
+    def test_upsert_into_populated_table_is_o1_selects(self, db):
+        """Upsert N rows where ALL already exist: existence is served from one
+        preload, not N per-row SELECTs."""
+        row_count = 300
+        seed_exchanger = _products_exchanger(db.session)
+        seed_exchanger.bulk_seed(row_count)
+        db.session.commit()
+        assert (
+            db.session.query(Product).filter(Product.slug.like("loadtest-%")).count()
+            == row_count
+        )
+
+        rows = [
+            {
+                "slug": f"loadtest-shop_products-{index}",
+                "name": f"Load-test product {index} (v2)",
+                "price": 10.99,
+                "category_slugs": [_SEED_CATEGORY_SLUG],
+            }
+            for index in range(row_count)
+        ]
+        payload = build_envelope("shop_products", rows, instance="test")
+
+        import_exchanger = _products_exchanger(db.session)
+        engine = db.session.get_bind()
+        with _record_statements(engine) as statements:
+            result = import_exchanger.import_(payload, mode="upsert", dry_run=False)
+
+        assert result.updated == row_count
+        category_selects = _count_selects_for(statements, ProductCategory.__tablename__)
+        product_selects = _count_selects_for(statements, Product.__tablename__)
+        assert (
+            category_selects <= _MAX_FIXED_SELECTS
+        ), f"expected O(1) category SELECTs, got {category_selects}"
+        assert product_selects <= _MAX_FIXED_SELECTS, (
+            f"expected O(1) existence SELECTs, got {product_selects} for "
+            f"{row_count} existing rows (existence not served from preload?)"
+        )
+
+    def test_unknown_non_seed_category_still_skips_with_error(self, db):
+        """A non-seed unknown slug still skips-with-error (cache must not invent)."""
+        exchanger = _products_exchanger(db.session)
+        exchanger._ensure_seed_prerequisite()
+        db.session.commit()
+
+        rows = [
+            {
+                "slug": "loadtest-shop_products-bad",
+                "name": "Bad product",
+                "price": 9.99,
+                "category_slugs": ["definitely-not-a-real-category"],
+            }
+        ]
+        payload = build_envelope("shop_products", rows, instance="test")
+
+        import_exchanger = _products_exchanger(db.session)
+        result = import_exchanger.import_(payload, mode="upsert", dry_run=False)
+
+        assert result.created == 0
+        assert len(result.errors) == 1
+        assert "unknown category slug" in result.errors[0]["reason"]
 
 
 class TestResetStatementBound:
