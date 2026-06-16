@@ -76,10 +76,23 @@ class _SessionModelRepository:
     domain finders rather than the four flat methods the base exchanger needs.
     """
 
-    def __init__(self, session: Any, model_class: type, natural_key: str) -> None:
+    def __init__(
+        self,
+        session: Any,
+        model_class: type,
+        natural_key: str,
+        dependent_fk_deletes: Optional[List[Any]] = None,
+    ) -> None:
         self._session = session
         self._model_class = model_class
         self._natural_key = natural_key
+        # M2M-link / child tables whose rows reference this model by a FK that the
+        # DB cascade traverses WITHOUT a supporting index (the second column of a
+        # composite PK). A bulk parent delete would then fire one unindexed
+        # seq-scan per parent row (O(N²) — the S89 100k reset hang). Each entry is
+        # ``(table, fk_column)``; we clear them set-based (one statement each)
+        # before the parent delete, so the parent cascade finds nothing to scan.
+        self._dependent_fk_deletes = list(dependent_fk_deletes or [])
 
     def find_all(self) -> List[Any]:
         return self._session.query(self._model_class).all()
@@ -132,13 +145,40 @@ class _SessionModelRepository:
         Scoped to this model and the ``loadtest-`` prefix only, so it never
         touches real/demo data. ``synchronize_session=False`` keeps the bulk
         delete a single statement (the session is committed by the caller).
+
+        Dependent link/child rows (declared in ``dependent_fk_deletes``) are
+        cleared first with one set-based statement each — keyed on the prefixed
+        parent set — so the parent delete's DB cascade has nothing left to
+        seq-scan per row. The whole reset is therefore a bounded number of
+        statements (1 per dependent table + 1 parent delete), not O(N).
         """
         column = getattr(self._model_class, self._natural_key)
+        self._clear_dependent_rows(column, prefix)
         return (
             self._session.query(self._model_class)
             .filter(column.like(f"{prefix}%"))
             .delete(synchronize_session=False)
         )
+
+    def _clear_dependent_rows(self, key_column: Any, prefix: str) -> None:
+        """Set-based delete the dependent link/child rows of the prefixed parents.
+
+        Each dependent table is cleared with a single
+        ``DELETE ... WHERE fk_column IN (SELECT id FROM parent WHERE key LIKE ...)``
+        — one pass over the dependent table (a hash/merge join), never one
+        seq-scan per parent. No raw SQL: the parent id set is a SQLAlchemy
+        subquery and each delete is a Core ``table.delete()``.
+        """
+        if not self._dependent_fk_deletes:
+            return
+        parent_id_select = (
+            self._session.query(getattr(self._model_class, "id"))
+            .filter(key_column.like(f"{prefix}%"))
+            .scalar_subquery()
+        )
+        for table, fk_column in self._dependent_fk_deletes:
+            statement = table.delete().where(fk_column.in_(parent_id_select))
+            self._session.execute(statement)
 
 
 class _PermissionMappedModelExchanger(BaseModelExchanger):
@@ -303,19 +343,30 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
 
     def _apply_links(self, product: Any, categories: list, row: dict) -> None:
         product.categories = list(categories)
+        new_variants = row.get("variants") or []
+        new_images = row.get("images") or []
+        had_children = bool(product.variants) or bool(product.images)
+        replacing_children = had_children or bool(new_variants) or bool(new_images)
+        if not replacing_children:
+            # Common load-test path: the product carries no children and had none.
+            # There is no orphan to clear and nothing to insert, so the per-row
+            # flush is pure overhead — let core's chunked ``_apply_row_stream``
+            # flush once per batch (O(N/chunk_size), not O(N)).
+            return
         # Delete-and-replace children: flush the orphan deletes before inserting
         # the replacements so a re-import does not collide on a child's unique
-        # ``sku`` (the old + new rows would otherwise insert in one flush).
+        # ``sku`` (the old + new rows would otherwise insert in one flush). Only
+        # taken when a child is actually being cleared or added.
         product.variants = []
         product.images = []
         self._product_session.flush()
         product.variants = [
             self._variant_class()(**self._child_attributes(variant, _VARIANT_FIELDS))
-            for variant in (row.get("variants") or [])
+            for variant in new_variants
         ]
         product.images = [
             self._image_class()(**self._child_attributes(image, _IMAGE_FIELDS))
-            for image in (row.get("images") or [])
+            for image in new_images
         ]
 
     def _child_attributes(self, child: dict, fields: tuple) -> dict:
@@ -546,8 +597,24 @@ def build_shop_exchangers(session: Any) -> List[EntityExchanger]:
     listed before ``shop_products`` so the categories a product links by slug
     exist before the products import (the unified ZIP import is dependency-aware).
     """
-    from plugins.shop.shop.models.product import Product
-    from plugins.shop.shop.models.product_category import ProductCategory
+    from plugins.shop.shop.models.product import Product, shop_product_tax
+    from plugins.shop.shop.models.product_category import (
+        ProductCategory,
+        shop_product_category_link,
+    )
+    from plugins.shop.shop.models.product_image import ProductImage
+    from plugins.shop.shop.models.product_variant import ProductVariant
+
+    # Tables that reference ``Product`` by a FK the DB cascade would traverse —
+    # cleared set-based before a bulk product delete so the reset stays O(stmts),
+    # not O(N²) (the link + tax PKs lead with the OTHER column, so the cascade
+    # lookup on ``product_id`` is unindexed → a seq-scan per deleted product).
+    product_dependent_fk_deletes = [
+        (shop_product_category_link, shop_product_category_link.c.product_id),
+        (shop_product_tax, shop_product_tax.c.product_id),
+        (ProductVariant.__table__, ProductVariant.product_id),
+        (ProductImage.__table__, ProductImage.product_id),
+    ]
 
     return [
         ShopProductCategoriesExchanger(
@@ -575,7 +642,12 @@ def build_shop_exchangers(session: Any) -> List[EntityExchanger]:
             cluster=CLUSTER_SALES,
             natural_key="slug",
             model_class=Product,
-            repository=_SessionModelRepository(session, Product, "slug"),
+            repository=_SessionModelRepository(
+                session,
+                Product,
+                "slug",
+                dependent_fk_deletes=product_dependent_fk_deletes,
+            ),
             session=session,
             public_fields=[
                 "slug",
