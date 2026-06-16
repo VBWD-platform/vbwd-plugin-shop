@@ -1,4 +1,6 @@
 """E-commerce routes — public catalog + admin management."""
+from decimal import ROUND_HALF_UP, Decimal
+
 from flask import Blueprint, current_app, jsonify, request, g
 from vbwd.extensions import db
 from vbwd.middleware.auth import require_auth, require_admin, require_permission
@@ -17,6 +19,82 @@ from plugins.shop.shop.models.product import validate_price_display_mode
 from vbwd.models.tax import Tax
 
 shop_bp = Blueprint("shop", __name__)
+
+# The cents quantize boundary for splitting a gross coupon discount into its
+# netto / tax portions on the invoice (the only rounding done in the route;
+# per-line tax rounding stays in ``vbwd/pricing/line_tax_fields``).
+#
+# NOTE (S96.6): these two helpers are intentionally a small DUPLICATE of the
+# booking plugin's ``_split_discount_tax_breakdown`` / discount roll-up — shop
+# must NOT import from booking (no undeclared plugin→plugin dependency), and the
+# code is too small / vertical-specific to justify a new core seam. Shop differs
+# from booking in that it has MULTIPLE product lines, so the per-rate split is
+# computed against the AGGREGATED pre-discount per-rate tax across all lines.
+_CENTS = Decimal("0.01")
+
+
+def _aggregate_pre_discount_tax_breakdown(product_lines):
+    """Sum the product lines' ``tax_breakdown`` by (code, rate).
+
+    Returns an ordered list of ``{code, name, rate, amount}`` with POSITIVE
+    aggregated amounts — the pre-discount per-rate tax the discount is split
+    against. Order follows first appearance so the result is deterministic.
+    """
+    aggregated = {}
+    order = []
+    for line in product_lines:
+        for entry in line.tax_breakdown or []:
+            key = (entry["code"], str(entry["rate"]))
+            if key not in aggregated:
+                aggregated[key] = {
+                    "code": entry["code"],
+                    "name": entry["name"],
+                    "rate": entry["rate"],
+                    "amount": Decimal("0.00"),
+                }
+                order.append(key)
+            aggregated[key]["amount"] += Decimal(str(entry["amount"]))
+    return [aggregated[key] for key in order]
+
+
+def _split_discount_tax_breakdown(aggregated_breakdown, tax_discount):
+    """Split a negative tax discount per rate, proportional to pre-discount tax.
+
+    ``aggregated_breakdown`` is the order's per-rate tax (positive amounts),
+    aggregated across all product lines. ``tax_discount`` is the (positive) total
+    tax portion of the gross discount. Returns a per-rate breakdown of NEGATIVE
+    amounts that sums EXACTLY to ``-tax_discount`` (to the cent) — any rounding
+    residual is absorbed into the largest-magnitude component so the aggregated
+    per-rate display reconciles with the invoice tax.
+    """
+    positive_amounts = [Decimal(str(entry["amount"])) for entry in aggregated_breakdown]
+    pre_tax_total = sum(positive_amounts, Decimal("0.00"))
+    if pre_tax_total <= Decimal("0"):
+        return []
+
+    discount_amounts = [
+        (tax_discount * amount / pre_tax_total).quantize(_CENTS, rounding=ROUND_HALF_UP)
+        for amount in positive_amounts
+    ]
+    # Absorb the rounding residual into the largest-magnitude component so the
+    # split sums to exactly ``tax_discount`` (one rounding boundary).
+    residual = tax_discount - sum(discount_amounts, Decimal("0.00"))
+    if residual != Decimal("0.00"):
+        largest_index = max(
+            range(len(discount_amounts)),
+            key=lambda index: abs(discount_amounts[index]),
+        )
+        discount_amounts[largest_index] += residual
+
+    return [
+        {
+            "code": entry["code"],
+            "name": entry["name"],
+            "rate": entry["rate"],
+            "amount": float(-amount),
+        }
+        for entry, amount in zip(aggregated_breakdown, discount_amounts)
+    ]
 
 
 class TaxAssignmentError(ValueError):
@@ -951,6 +1029,7 @@ def cart_checkout():
     session_id = str(invoice.id)
     from vbwd.pricing.line_tax_fields import line_tax_fields
 
+    product_line_items = []
     try:
         for cart_item in items:
             product = product_repo.find_by_id(cart_item["product_id"])
@@ -1015,26 +1094,58 @@ def cart_checkout():
                 "price_breakdown": computed_price.to_dict(),
             }
             db.session.add(line_item)
+            product_line_items.append(line_item)
             # S77: freeze the product's tags + custom-fields onto the line item
             # so the invoice stays immutable (no live join to the product).
             snapshot_line_item_tags_and_custom_fields(line_item)
 
         # Apply the (already-validated) coupon discount as a negative line.
+        # S96.6 (D-DiscountTax): the coupon quotes a GROSS discount that reduces
+        # the NETTO; the tax recomputes on the discounted netto. The discount
+        # line carries negative net_amount / tax_amount / per-rate tax_breakdown
+        # (split proportionally to the AGGREGATED pre-discount per-rate tax across
+        # all product lines). The invoice subtotal / tax_amount / total_amount
+        # then ROLL UP from all lines so the four invariants hold to the cent.
         if price_result.discount_amount > Decimal("0"):
+            gross_discount = Decimal(str(price_result.discount_amount))
+            pre_discount_net = invoice_net
+            pre_discount_total = invoice_net + invoice_tax
+
+            # Split the gross discount into its netto / tax portions in proportion
+            # to the order's pre-discount split (one cents rounding; tax = gross -
+            # net so they always sum to the gross discount).
+            if pre_discount_total > Decimal("0"):
+                net_discount = (
+                    gross_discount * pre_discount_net / pre_discount_total
+                ).quantize(_CENTS, rounding=ROUND_HALF_UP)
+            else:
+                net_discount = gross_discount
+            tax_discount = gross_discount - net_discount
+
+            aggregated_breakdown = _aggregate_pre_discount_tax_breakdown(
+                product_line_items
+            )
+            discount_breakdown = _split_discount_tax_breakdown(
+                aggregated_breakdown, tax_discount
+            )
+
             discount_line = InvoiceLineItem()
             discount_line.invoice_id = invoice.id
             discount_line.item_type = LineItemType.CUSTOM
             discount_line.item_id = uuid.uuid4()
             discount_line.description = price_result.label or "Discount"
             discount_line.quantity = 1
-            discount_line.unit_price = -price_result.discount_amount
-            discount_line.total_price = -price_result.discount_amount
+            discount_line.unit_price = -gross_discount
+            discount_line.total_price = -gross_discount
+            discount_line.net_amount = -net_discount
+            discount_line.tax_amount = -tax_discount
+            discount_line.tax_breakdown = discount_breakdown
             discount_line.extra_data = {"discount": True, "coupon_code": coupon_code}
             db.session.add(discount_line)
-            total -= price_result.discount_amount
-            # The discount carries no tax breakdown (net == gross for the line);
-            # it reduces the invoice net so subtotal + tax still == gross total.
-            invoice_net -= price_result.discount_amount
+
+            total -= gross_discount
+            invoice_net -= net_discount
+            invoice_tax -= tax_discount
 
         invoice.amount = total
         invoice.subtotal = invoice_net
