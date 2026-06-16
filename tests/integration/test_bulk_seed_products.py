@@ -103,6 +103,82 @@ class TestBulkSeedProducts:
         )
         assert len(categories) == 1
 
+    def test_round_trips_after_reset_drops_shared_category(self, db):
+        """Reproduce the S89 bench: reset deletes the shared category, then the
+        exported envelope is re-imported. The load-test category slug in each
+        row must be self-healed (recreated) so all rows import, not skipped.
+        """
+        exchanger = _products_exchanger(db.session)
+        exchanger.bulk_seed(10)
+        db.session.commit()
+
+        exported = exchanger.export(ExportSelector(ids=None), include_pii=False).rows
+        loadtest_rows = [row for row in exported if row["slug"].startswith("loadtest-")]
+        assert len(loadtest_rows) == 10
+
+        # Reset to empty: this drops the load-test products AND the now-orphaned
+        # shared ``loadtest-`` category (the production sequence the bench runs
+        # before every ``import:cold``).
+        reset_exchanger = _products_exchanger(db.session)
+        reset_exchanger.bulk_seed(0, reset=True)
+        db.session.commit()
+        assert (
+            db.session.query(ProductCategory)
+            .filter(ProductCategory.slug == _SEED_CATEGORY_SLUG)
+            .first()
+            is None
+        )
+
+        payload = build_envelope("shop_products", loadtest_rows, instance="test")
+        result = exchanger.import_(payload, mode="upsert", dry_run=False)
+
+        assert result.errors == []
+        assert result.created == 10
+        rebuilt = _loadtest_products(db.session)
+        assert len(rebuilt) == 10
+        assert all(
+            [category.slug for category in product.categories] == [_SEED_CATEGORY_SLUG]
+            for product in rebuilt
+        )
+
+        # A follow-up export returns the re-imported rows (the bench's next
+        # ``export:api`` surface would otherwise see only demo rows → empty).
+        re_exported = exchanger.export(ExportSelector(ids=None), include_pii=False).rows
+        assert (
+            len([row for row in re_exported if row["slug"].startswith("loadtest-")])
+            == 10
+        )
+
+    def test_import_unknown_non_seed_category_still_skips_with_error(self, db):
+        """Guard against an over-broad fix: a genuinely unknown (non-seed)
+        category slug must still skip-with-error, never auto-create a category.
+        """
+        exchanger = _products_exchanger(db.session)
+        payload = build_envelope(
+            "shop_products",
+            [
+                {
+                    "slug": "manual-product",
+                    "name": "Manual",
+                    "price": 5.0,
+                    "category_slugs": ["definitely-not-a-real-category"],
+                }
+            ],
+            instance="test",
+        )
+
+        result = exchanger.import_(payload, mode="upsert", dry_run=False)
+
+        assert result.created == 0
+        assert len(result.errors) == 1
+        assert "definitely-not-a-real-category" in result.errors[0]["reason"]
+        assert (
+            db.session.query(ProductCategory)
+            .filter(ProductCategory.slug == "definitely-not-a-real-category")
+            .first()
+            is None
+        )
+
     def test_reset_drops_only_loadtest_rows_and_orphaned_category(self, db):
         # A pre-existing real product + real category must survive --reset.
         keeper_category = ProductCategory(slug="real-cat", name="Real")

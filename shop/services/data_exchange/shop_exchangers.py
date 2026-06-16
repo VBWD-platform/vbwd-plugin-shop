@@ -263,10 +263,16 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
         for slug in category_slugs:
             category = self._find_category_by_slug(slug)
             if category is None:
-                result.errors.append(
-                    {"row": index, "reason": f"unknown category slug '{slug}'"}
-                )
-                return
+                # Self-heal the one shared load-test prerequisite (S89 bench
+                # resets it before each ``import:cold``); any OTHER unknown slug
+                # still skips-with-error — never invent data for a typo (Liskov).
+                if slug == self._SEED_CATEGORY_SLUG:
+                    category = self._ensure_seed_prerequisite()
+                else:
+                    result.errors.append(
+                        {"row": index, "reason": f"unknown category slug '{slug}'"}
+                    )
+                    return
             categories.append(category)
 
         key_value = row.get(self.natural_key)
@@ -388,9 +394,13 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
         Created + committed through the existing ``ProductCategoryRepository``
         (no raw SQL) and cached on the exchanger so 100k products share one
         category and a single lookup. Idempotent: an existing category (this
-        run or a prior seed) is reused, never duplicated.
+        run or a prior seed) is reused, never duplicated. A cached category that
+        has since been deleted (e.g. a reset on a sibling exchanger) is dropped
+        and re-created, so the cache never returns a stale referent.
         """
-        if self._seed_category is not None:
+        if self._seed_category is not None and not self._is_deleted(
+            self._seed_category
+        ):
             return self._seed_category
         from plugins.shop.shop.models.product_category import ProductCategory
         from plugins.shop.shop.repositories.product_category_repository import (
@@ -408,6 +418,18 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
             repository.save(category)
         self._seed_category = category
         return category
+
+    @staticmethod
+    def _is_deleted(instance: Any) -> bool:
+        """True when ``instance`` has been deleted/detached from its session.
+
+        Guards the cache: a sibling exchanger's reset can delete the cached
+        category out from under this instance, leaving it deleted/detached.
+        """
+        from sqlalchemy import inspect as sqlalchemy_inspect
+
+        state = sqlalchemy_inspect(instance)
+        return state.deleted or state.detached
 
     def _reset_loadtest_rows(self) -> int:
         """Drop the load-test products, then the shared category if now orphaned.
