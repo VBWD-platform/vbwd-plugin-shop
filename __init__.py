@@ -134,6 +134,14 @@ class ShopPlugin(BasePlugin):
 
         register_catalog_seeder(seed_catalog)
 
+        # Cross-entity search seam — contribute shop products to the agnostic
+        # search registry so the /search bot can find them (idempotent: register
+        # replaces by entity_type). Core names no shop vocabulary.
+        from vbwd.services.search import search_provider_registry
+        from plugins.shop.shop.search_provider import ShopProductSearchProvider
+
+        search_provider_registry.register(ShopProductSearchProvider())
+
     def on_disable(self):
         from flask import current_app
 
@@ -157,6 +165,10 @@ class ShopPlugin(BasePlugin):
         from vbwd.services.entity_type_registry import unregister_entity_type
 
         unregister_entity_type("shop_product")
+
+        from vbwd.services.search import search_provider_registry
+
+        search_provider_registry.unregister("shop_product")
 
     @property
     def admin_permissions(self):

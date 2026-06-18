@@ -22,6 +22,14 @@ shop_product_category_link = db.Table(
         db.UUID,
         db.ForeignKey("shop_product.id", ondelete="CASCADE"),
         primary_key=True,
+        # ``product_id`` is the SECOND column of the composite PK, so the PK index
+        # cannot serve a ``WHERE product_id = ?`` probe. Without this standalone
+        # index the ``ON DELETE CASCADE`` to this table seq-scans the link heap
+        # once per deleted product → O(N²) on a bulk product delete (the S89 t3
+        # load-test reset hang). Every sibling FK→shop_product table already has
+        # such an index; this was the lone gap. Mirrored by migration
+        # 20260617_shop_link_product_id_idx for existing DBs.
+        index=True,
     ),
 )
 

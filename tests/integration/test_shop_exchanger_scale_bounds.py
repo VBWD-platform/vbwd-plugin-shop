@@ -19,7 +19,7 @@ no overengineering. Quality guard: ``bin/pre-commit-check.sh --plugin shop
 """
 from contextlib import contextmanager
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 
 from vbwd.services.data_exchange.base_model_exchanger import EXPORT_CHUNK_SIZE
 from vbwd.services.data_exchange.envelope import build_envelope
@@ -280,6 +280,32 @@ class TestImportSelectBound:
         assert result.created == 0
         assert len(result.errors) == 1
         assert "unknown category slug" in result.errors[0]["reason"]
+
+
+class TestCascadeFkIndex:
+    """The link FK column must be indexed so the parent-delete cascade is a probe.
+
+    ``shop_product_category_link``'s composite PK is ``(category_id, product_id)``,
+    so ``product_id`` has no leading PK index. Without a standalone index the
+    ``ON DELETE CASCADE`` from ``shop_product`` seq-scans the link heap once per
+    deleted product → O(N²) (the S89 t3 1M-row reset hang). This guards that the
+    index is declared on the model so ``create_all`` / fresh installs build it,
+    matching migration ``20260617_shop_link_product_id_idx`` for existing DBs.
+    """
+
+    def test_link_product_id_is_indexed(self, db):
+        connection = db.session.connection()
+        indexed_columns = {
+            tuple(index["column_names"])
+            for index in inspect(connection).get_indexes("shop_product_category_link")
+        }
+        # A standalone (or leading) index on product_id must exist.
+        assert any(
+            columns and columns[0] == "product_id" for columns in indexed_columns
+        ), (
+            "shop_product_category_link.product_id has no supporting index — the "
+            "ON DELETE CASCADE from shop_product will seq-scan per row (O(N²))"
+        )
 
 
 class TestResetStatementBound:

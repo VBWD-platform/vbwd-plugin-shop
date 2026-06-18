@@ -975,6 +975,12 @@ def cart_checkout():
     from vbwd.services.checkout_price_adjustment_registry import (
         resolve_price_adjustment,
     )
+    from vbwd.services.core_settings_store import get_default_currency
+
+    # S99: the billing currency is the operating currency (the configured
+    # default) — both the coupon scope and the invoice are denominated in it,
+    # never a hard-coded literal.
+    billing_currency = get_default_currency()
 
     # S85.2 (D1/D8): all price math goes through the core PriceFactory. The
     # charge per item is Price.brutto; the breakdown (netto + per-tax) is what
@@ -997,7 +1003,7 @@ def cart_checkout():
         subtotal=preview_subtotal,
         user_id=str(g.user_id) if g.user_id else None,
         scope="ECOMMERCE",
-        currency="EUR",
+        currency=billing_currency,
     )
     if not price_result.valid:
         return (
@@ -1009,7 +1015,7 @@ def cart_checkout():
     invoice = UserInvoice()
     invoice.user_id = g.user_id
     invoice.invoice_number = f"SH-{uuid.uuid4().hex[:8].upper()}"
-    invoice.currency = "EUR"
+    invoice.currency = billing_currency
     invoice.status = InvoiceStatus.PENDING
     invoice.amount = Decimal("0")
     invoice.subtotal = Decimal("0")
@@ -1228,7 +1234,11 @@ def admin_calculate_shipping_rates():
     data = request.get_json() or {}
     items = data.get("items", [])
     address = data.get("address", {})
-    currency = data.get("currency", "EUR")
+    # S99: shipping cost is denominated in the operating (billing) currency —
+    # read the setting, never a literal fallback.
+    from vbwd.services.core_settings_store import get_default_currency
+
+    currency = data.get("currency") or get_default_currency()
 
     registry = _shipping_registry()
     all_rates = []
