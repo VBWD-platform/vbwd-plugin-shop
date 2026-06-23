@@ -963,6 +963,19 @@ def cart_checkout():
     if not items:
         return jsonify({"error": "Cart is empty"}), 400
 
+    # S101.0: run any registered checkout validators (e.g. a downstream module's
+    # class-based purchase gate) BEFORE blocking stock or creating the invoice —
+    # fail closed. Shop ships no validators; it only runs what's registered.
+    from plugins.shop.shop.checkout_validation_registry import (
+        CheckoutValidationError,
+        get_checkout_validation_registry,
+    )
+
+    try:
+        get_checkout_validation_registry().validate(items=items, user_id=g.user_id)
+    except CheckoutValidationError as validation_error:
+        return jsonify({"error": validation_error.reason}), 400
+
     product_repo = ProductRepository(db.session)
     stock_service = StockService(
         WarehouseStockRepository(db.session),
@@ -1260,3 +1273,170 @@ def admin_calculate_shipping_rates():
             pass  # Provider error — skip
 
     return jsonify({"rates": all_rates}), 200
+
+
+# ── Admin: Product variants (S101.0) ──────────────────────────────────────
+
+
+def _variant_service():
+    """Build the variant-authoring service with a request-scoped session."""
+    from plugins.shop.shop.repositories.product_variant_repository import (
+        ProductVariantRepository,
+    )
+    from plugins.shop.shop.services.product_variant_service import (
+        ProductVariantService,
+    )
+
+    return ProductVariantService(
+        ProductVariantRepository(db.session),
+        current_app.container.price_factory(),
+    )
+
+
+def _variant_payload(service, variant):
+    """Serialise a variant with its ``PriceFactory``-computed pricing block."""
+    payload = variant.to_dict()
+    payload["pricing"] = service.get_variant_pricing(variant)
+    return payload
+
+
+@shop_bp.route("/api/v1/admin/shop/products/<product_id>/variants", methods=["GET"])
+@require_auth
+@require_admin
+@require_permission("shop.products.view")
+def admin_list_variants(product_id):
+    """List a product's variants (ordered)."""
+    product = ProductRepository(db.session).find_by_id(product_id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+    service = _variant_service()
+    variants = service.list_variants(product.id)
+    return (
+        jsonify({"variants": [_variant_payload(service, v) for v in variants]}),
+        200,
+    )
+
+
+@shop_bp.route("/api/v1/admin/shop/products/<product_id>/variants", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_create_variant(product_id):
+    """Create a pack/strength/form variant for a product."""
+    from plugins.shop.shop.services.product_variant_service import (
+        DuplicateVariantSkuError,
+    )
+
+    product = ProductRepository(db.session).find_by_id(product_id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+
+    data = request.get_json() or {}
+    service = _variant_service()
+    try:
+        variant = service.create_variant(product.id, data)
+    except DuplicateVariantSkuError as error:
+        return jsonify({"error": str(error)}), 400
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    # A product with variants must advertise that so the detail route nests them.
+    if not product.has_variants:
+        product.has_variants = True
+        ProductRepository(db.session).save(product)
+
+    return jsonify({"variant": _variant_payload(service, variant)}), 201
+
+
+@shop_bp.route(
+    "/api/v1/admin/shop/products/<product_id>/variants/<variant_id>",
+    methods=["PUT"],
+)
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_update_variant(product_id, variant_id):
+    """Update a variant's editable attributes."""
+    from plugins.shop.shop.services.product_variant_service import (
+        DuplicateVariantSkuError,
+        VariantNotFoundError,
+    )
+
+    data = request.get_json() or {}
+    service = _variant_service()
+    try:
+        variant = service.update_variant(product_id, variant_id, data)
+    except VariantNotFoundError:
+        return jsonify({"error": "Variant not found"}), 404
+    except DuplicateVariantSkuError as error:
+        return jsonify({"error": str(error)}), 400
+
+    return jsonify({"variant": _variant_payload(service, variant)}), 200
+
+
+@shop_bp.route(
+    "/api/v1/admin/shop/products/<product_id>/variants/<variant_id>",
+    methods=["DELETE"],
+)
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_delete_variant(product_id, variant_id):
+    """Delete a variant."""
+    from plugins.shop.shop.services.product_variant_service import (
+        VariantNotFoundError,
+    )
+
+    service = _variant_service()
+    try:
+        service.delete_variant(product_id, variant_id)
+    except VariantNotFoundError:
+        return jsonify({"error": "Variant not found"}), 404
+    return jsonify({"message": "Variant deleted"}), 200
+
+
+@shop_bp.route(
+    "/api/v1/admin/shop/products/<product_id>/variants/reorder",
+    methods=["POST"],
+)
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_reorder_variants(product_id):
+    """Reorder a product's variants by an ordered list of variant ids."""
+    from plugins.shop.shop.services.product_variant_service import (
+        VariantNotFoundError,
+    )
+
+    data = request.get_json() or {}
+    ordered_ids = data.get("variant_ids") or []
+    service = _variant_service()
+    try:
+        variants = service.reorder_variants(product_id, ordered_ids)
+    except VariantNotFoundError as error:
+        return jsonify({"error": str(error)}), 400
+    return (
+        jsonify({"variants": [_variant_payload(service, v) for v in variants]}),
+        200,
+    )
+
+
+@shop_bp.route(
+    "/api/v1/admin/shop/products/<product_id>/variants/<variant_id>/toggle",
+    methods=["POST"],
+)
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_toggle_variant(product_id, variant_id):
+    """Flip a variant's ``is_active`` flag."""
+    from plugins.shop.shop.services.product_variant_service import (
+        VariantNotFoundError,
+    )
+
+    service = _variant_service()
+    try:
+        variant = service.toggle_variant(product_id, variant_id)
+    except VariantNotFoundError:
+        return jsonify({"error": "Variant not found"}), 404
+    return jsonify({"variant": _variant_payload(service, variant)}), 200

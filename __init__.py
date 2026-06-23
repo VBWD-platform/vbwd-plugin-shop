@@ -87,6 +87,9 @@ class ShopPlugin(BasePlugin):
         from plugins.shop.shop.repositories.product_repository import (
             ProductRepository,
         )
+        from plugins.shop.shop.repositories.product_variant_repository import (
+            ProductVariantRepository,
+        )
         from plugins.shop.shop.repositories.stock_block_repository import (
             StockBlockRepository,
         )
@@ -103,6 +106,7 @@ class ShopPlugin(BasePlugin):
                 container,
                 {
                     "shop_product_repository": ProductRepository,
+                    "shop_product_variant_repository": ProductVariantRepository,
                     "shop_product_category_repository": ProductCategoryRepository,
                     "shop_order_repository": OrderRepository,
                     "shop_order_item_repository": OrderItemRepository,
@@ -153,6 +157,7 @@ class ShopPlugin(BasePlugin):
                 container,
                 [
                     "shop_product_repository",
+                    "shop_product_variant_repository",
                     "shop_product_category_repository",
                     "shop_order_repository",
                     "shop_order_item_repository",

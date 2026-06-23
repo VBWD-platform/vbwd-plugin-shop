@@ -93,6 +93,27 @@ docker compose run --rm test pytest plugins/ecommerce/tests/unit/test_stock_serv
 | PUT | `/api/v1/admin/shop/products/<id>` | Update product |
 | DELETE | `/api/v1/admin/shop/products/<id>` | Delete product |
 
+### Admin -- Product variants (S101.0, perm `shop.products.manage`)
+
+The backend variant-authoring API: create/edit/reorder/toggle a product's pack
+variants programmatically (each priced via the core `PriceFactory`, stock via
+the existing variant-aware `WarehouseStock`). Stays vertical-agnostic — a
+downstream module (e.g. a pharmacy module) drives it from its own UI.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/admin/shop/products/<id>/variants` | List variants (ordered) |
+| POST | `/api/v1/admin/shop/products/<id>/variants` | Create a variant |
+| PUT | `/api/v1/admin/shop/products/<id>/variants/<variant_id>` | Update a variant |
+| DELETE | `/api/v1/admin/shop/products/<id>/variants/<variant_id>` | Delete a variant |
+| POST | `/api/v1/admin/shop/products/<id>/variants/reorder` | Reorder by `variant_ids[]` |
+| POST | `/api/v1/admin/shop/products/<id>/variants/<variant_id>/toggle` | Flip `is_active` |
+
+Also adds a generic, vertical-agnostic **checkout-validation registry**
+(`shop/checkout_validation_registry.py`): the cart-checkout route runs every
+registered validator BEFORE blocking stock (fail-closed). Shop ships none; a
+downstream module registers its own purchase gates without editing shop.
+
 ### Admin -- Orders
 
 | Method | Path | Description |

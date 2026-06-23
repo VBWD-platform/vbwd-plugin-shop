@@ -25,6 +25,38 @@ class ProductVariant(BaseModel):
     attributes = db.Column(JSONB, nullable=False, default=dict)
     image_url = db.Column(db.String(500), nullable=True)
 
+    @property
+    def raw_price(self) -> float:
+        """The variant's price as a float (``Priceable`` member, S85/S101.0).
+
+        A variant prices via the core ``PriceFactory`` like any sellable: its own
+        ``price`` when set, otherwise it falls back to the parent product's price
+        so a variant without an explicit override still resolves a price.
+        """
+        if self.price is not None:
+            return float(self.price)
+        if self.price_float is not None:
+            return float(self.price_float)
+        product = getattr(self, "product", None)
+        return float(product.price) if product and product.price is not None else 0.0
+
+    @property
+    def taxes(self):
+        """Inherit the parent product's assigned taxes (``Priceable`` member).
+
+        Tax is a product-level concern (a pack inherits its product's tax
+        treatment); the variant carries only its own price. Empty when the
+        product is not loaded.
+        """
+        product = getattr(self, "product", None)
+        return getattr(product, "taxes", None) or []
+
+    @property
+    def price_display_mode(self):
+        """Inherit the parent product's display-mode override (S72.4)."""
+        product = getattr(self, "product", None)
+        return getattr(product, "price_display_mode", None)
+
     def to_dict(self) -> dict:
         return {
             "id": str(self.id),
