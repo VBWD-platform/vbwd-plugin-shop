@@ -947,8 +947,8 @@ def _populate_cms_content(session):
         from plugins.cms.src.models.cms_layout import CmsLayout
         from plugins.cms.src.models.cms_widget import CmsWidget
         from plugins.cms.src.models.cms_layout_widget import CmsLayoutWidget
-        from plugins.cms.src.models.cms_page import CmsPage
-        from plugins.cms.src.models.cms_category import CmsCategory
+        from plugins.cms.src.models.cms_post import CmsPost
+        from plugins.cms.src.models.cms_term import CmsTerm
     except ImportError:
         logger.info("[shop] CMS plugin not installed — skipping CMS content")
         return
@@ -980,7 +980,9 @@ def _populate_cms_content(session):
             session.flush()
 
     # CMS Category
-    cms_cat, created = _get_or_create(CmsCategory, "shop", name="Shop", sort_order=70)
+    cms_cat, created = _get_or_create(
+        CmsTerm, "shop", term_type="category", name="Shop", sort_order=70
+    )
     if created:
         logger.info("[shop] Created CMS category: shop")
 
@@ -1097,38 +1099,39 @@ def _populate_cms_content(session):
 
     # Pages
     _get_or_create(
-        CmsPage,
+        CmsPost,
         "shop",
-        name="Shop",
+        type="page",
+        title="Shop",
         language="en",
         content_json={"type": "doc", "content": []},
-        is_published=True,
-        category_id=cms_cat.id,
+        status="published",
         layout_id=layout_catalogue.id,
         meta_title="Shop",
         meta_description="Browse our products — electronics, clothing, books and more",
         robots="index,follow",
     )
     _get_or_create(
-        CmsPage,
+        CmsPost,
         "shop-product-detail",
-        name="Product Detail",
+        type="page",
+        title="Product Detail",
         language="en",
         content_json={"type": "doc", "content": []},
-        is_published=True,
-        category_id=cms_cat.id,
+        status="published",
         layout_id=layout_detail.id,
         meta_title="Product",
         meta_description="Product details",
         robots="index,follow",
     )
     _get_or_create(
-        CmsPage,
+        CmsPost,
         "shop-cart",
-        name="Shopping Cart",
+        type="page",
+        title="Shopping Cart",
         language="en",
         content_json={"type": "doc", "content": []},
-        is_published=True,
+        status="published",
         layout_id=layout_cart.id,
         meta_title="Shopping Cart",
         meta_description="Review your cart and proceed to checkout",
