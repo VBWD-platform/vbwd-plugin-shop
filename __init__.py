@@ -24,7 +24,7 @@ class ShopPlugin(BasePlugin):
     def metadata(self) -> PluginMetadata:
         return PluginMetadata(
             name="shop",
-            version="26.6",
+            version="26.6.1",
             author="VBWD",
             description="Shop — products, orders, stock management, shipping",
             dependencies=["email"],
