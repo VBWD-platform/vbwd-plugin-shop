@@ -262,6 +262,58 @@ def _require_marketplace_enabled():
     return None
 
 
+def _load_owned_product(product_id):
+    """Load a product and enforce vendor ownership (``vendor_id == g.user_id``).
+
+    The single home for the vendor product-scoped guard used at
+    routes.py:764-768 — returns ``(product, None)`` or ``(None, error_tuple)``
+    (404 when missing, 403 when owned by another vendor).
+    """
+    repo = ProductRepository(db.session)
+    product = repo.find_by_id(product_id)
+    if not product:
+        return None, (jsonify({"error": "Product not found"}), 404)
+    if str(product.vendor_id) != str(g.user_id):
+        return None, (jsonify({"error": "You do not own this product"}), 403)
+    return product, None
+
+
+def _upsert_product_stock(product_id, data):
+    """Create-or-update the stock row for a product in a warehouse (DRY).
+
+    Shared by the admin (``admin_update_stock``) and the vendor stock routes so
+    the upsert never diverges. Returns ``(stock, None)`` or
+    ``(None, error_tuple)`` (400 when ``warehouse_id`` is missing).
+    """
+    warehouse_id = data.get("warehouse_id")
+    if not warehouse_id:
+        return None, (jsonify({"error": "warehouse_id is required"}), 400)
+
+    stock_repo = WarehouseStockRepository(db.session)
+    stock = stock_repo.find_by_product_and_warehouse(product_id, warehouse_id)
+    if not stock:
+        from uuid import uuid4
+        from plugins.shop.shop.models.warehouse_stock import WarehouseStock as WS
+
+        stock = WS(
+            id=uuid4(),
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            quantity=int(data.get("quantity", 0)),
+            low_stock_threshold=int(data.get("low_stock_threshold", 10)),
+        )
+        db.session.add(stock)
+        db.session.commit()
+    else:
+        if "quantity" in data:
+            stock.quantity = int(data["quantity"])
+        if "low_stock_threshold" in data:
+            stock.low_stock_threshold = int(data["low_stock_threshold"])
+        stock_repo.save(stock)
+
+    return stock, None
+
+
 # ── Public: Catalog ──────────────────────────────────────────────────────
 
 
@@ -912,6 +964,299 @@ def vendor_delete_category(category_id):
     return jsonify({"success": True}), 200
 
 
+# ── Vendor: Stock / Images / Tags & custom fields (own products) ─────
+#
+# Same guard chain as the vendor product routes above: ``marketplace_enabled``
+# + the ``marketplace.vendor`` permission + per-product ``vendor_id`` ownership
+# (``_load_owned_product``). Every route reuses the exact same primitives the
+# admin routes use — the shared ``_upsert_product_stock`` / image helpers and
+# the core ``tags_and_custom_fields()`` port — so vendor + admin never diverge.
+
+
+@shop_bp.route("/api/v1/shop/vendor/warehouses", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_warehouses():
+    """Vendor self-service: list active warehouses (no per-row ownership)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = WarehouseRepository(db.session)
+    warehouses = repo.find_active()
+    return (
+        jsonify(
+            {
+                "warehouses": [
+                    {"id": str(warehouse.id), "name": warehouse.name}
+                    for warehouse in warehouses
+                ]
+            }
+        ),
+        200,
+    )
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>/stock", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_get_product_stock(product_id):
+    """Vendor self-service: stock rows for a product the vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    stock_repo = WarehouseStockRepository(db.session)
+    warehouse_repo = WarehouseRepository(db.session)
+    enriched = []
+    for stock_item in stock_repo.find_by_product(product_id):
+        item_dict = stock_item.to_dict()
+        warehouse = warehouse_repo.find_by_id(stock_item.warehouse_id)
+        item_dict["warehouse_name"] = warehouse.name if warehouse else "Unknown"
+        enriched.append(item_dict)
+
+    return jsonify({"stock": enriched}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>/stock", methods=["PUT"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_update_product_stock(product_id):
+    """Vendor self-service: upsert stock for a product the vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    data = request.get_json() or {}
+    stock, stock_error = _upsert_product_stock(product_id, data)
+    if stock_error:
+        return stock_error
+    return jsonify({"stock": stock.to_dict()}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>/images", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_product_images(product_id):
+    """Vendor self-service: images for a product the vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+    return jsonify({"images": _list_product_images(product_id)}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>/images", methods=["POST"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_upload_product_image(product_id):
+    """Vendor self-service: upload an image for a product the vendor owns."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    product_image, upload_error = _upload_product_image(product_id)
+    if upload_error:
+        return upload_error
+    return jsonify({"image": product_image.to_dict()}), 201
+
+
+@shop_bp.route(
+    "/api/v1/shop/vendor/products/<product_id>/images/<image_id>/primary",
+    methods=["POST"],
+)
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_set_product_image_primary(product_id, image_id):
+    """Vendor self-service: set primary image for a product the vendor owns."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    target, primary_error = _set_product_image_primary(product_id, image_id)
+    if primary_error:
+        return primary_error
+    return jsonify({"image": target.to_dict()}), 200
+
+
+@shop_bp.route(
+    "/api/v1/shop/vendor/products/<product_id>/images/<image_id>",
+    methods=["DELETE"],
+)
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_delete_product_image(product_id, image_id):
+    """Vendor self-service: delete an image for a product the vendor owns."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    delete_error = _delete_product_image(product_id, image_id)
+    if delete_error:
+        return delete_error
+    return jsonify({"message": "Image deleted"}), 200
+
+
+def _vendor_tags_and_custom_fields():
+    """The core generic tags / custom-fields port (D5/D6 by-id seam)."""
+    return current_app.container.tags_and_custom_fields()
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>/tags", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_get_product_tags(product_id):
+    """Vendor self-service: tag slugs on a product the vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    port = _vendor_tags_and_custom_fields()
+    return jsonify({"tags": port.get_tags("shop_product", product_id)}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>/tags", methods=["PUT"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_set_product_tags(product_id):
+    """Vendor self-service: replace the full tag set (unknown slugs auto-create)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    data = request.get_json() or {}
+    slugs = data.get("tags")
+    if not isinstance(slugs, list):
+        return jsonify({"error": "tags must be a list"}), 400
+
+    port = _vendor_tags_and_custom_fields()
+    port.set_tags("shop_product", product_id, slugs)
+    return jsonify({"tags": port.get_tags("shop_product", product_id)}), 200
+
+
+@shop_bp.route(
+    "/api/v1/shop/vendor/products/<product_id>/custom-fields", methods=["GET"]
+)
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_get_product_custom_fields(product_id):
+    """Vendor self-service: custom-field values on a product the vendor owns."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    port = _vendor_tags_and_custom_fields()
+    values = port.get_custom_fields("shop_product", product_id)
+    return jsonify({"custom_fields": values}), 200
+
+
+@shop_bp.route(
+    "/api/v1/shop/vendor/products/<product_id>/custom-fields", methods=["PUT"]
+)
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_set_product_custom_fields(product_id):
+    """Vendor self-service: partial upsert of custom-field values (``None`` clears)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    _product, error = _load_owned_product(product_id)
+    if error:
+        return error
+
+    data = request.get_json() or {}
+    values = data.get("custom_fields")
+    if not isinstance(values, dict):
+        return jsonify({"error": "custom_fields must be an object"}), 400
+
+    from vbwd.services.tags_and_custom_fields import (
+        CustomFieldValidationError,
+        UnknownCustomFieldError,
+        UnknownEntityTypeError,
+    )
+
+    port = _vendor_tags_and_custom_fields()
+    try:
+        port.set_custom_fields("shop_product", product_id, values)
+    except (
+        CustomFieldValidationError,
+        UnknownCustomFieldError,
+        UnknownEntityTypeError,
+    ) as validation_error:
+        return jsonify({"error": str(validation_error)}), 400
+
+    updated = port.get_custom_fields("shop_product", product_id)
+    return jsonify({"custom_fields": updated}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/product-custom-field-defs", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_product_custom_field_defs():
+    """Vendor self-service: the ``shop_product`` custom-field def catalog.
+
+    Global metadata (no per-row ownership) — the picker reads labels + types.
+    """
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    port = _vendor_tags_and_custom_fields()
+    return jsonify({"custom_fields": port.get_field_defs("shop_product")}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/product-tags-catalog", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_product_tags_catalog():
+    """Vendor self-service: tags applicable to ``shop_product`` (global + scoped).
+
+    Global metadata (no per-row ownership) — the picker reads the catalog.
+    """
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    port = _vendor_tags_and_custom_fields()
+    return jsonify({"tags": port.list_applicable_tags("shop_product")}), 200
+
+
 # ── Admin: Stock ─────────────────────────────────────────────────────
 
 
@@ -947,32 +1292,9 @@ def admin_stock_overview():
 def admin_update_stock(product_id):
     """Update stock for a product in a warehouse."""
     data = request.get_json() or {}
-    warehouse_id = data.get("warehouse_id")
-    if not warehouse_id:
-        return jsonify({"error": "warehouse_id is required"}), 400
-
-    stock_repo = WarehouseStockRepository(db.session)
-    stock = stock_repo.find_by_product_and_warehouse(product_id, warehouse_id)
-    if not stock:
-        from uuid import uuid4
-        from plugins.shop.shop.models.warehouse_stock import WarehouseStock as WS
-
-        stock = WS(
-            id=uuid4(),
-            warehouse_id=warehouse_id,
-            product_id=product_id,
-            quantity=int(data.get("quantity", 0)),
-            low_stock_threshold=int(data.get("low_stock_threshold", 10)),
-        )
-        db.session.add(stock)
-        db.session.commit()
-    else:
-        if "quantity" in data:
-            stock.quantity = int(data["quantity"])
-        if "low_stock_threshold" in data:
-            stock.low_stock_threshold = int(data["low_stock_threshold"])
-        stock_repo.save(stock)
-
+    stock, error = _upsert_product_stock(product_id, data)
+    if error:
+        return error
     return jsonify({"stock": stock.to_dict()}), 200
 
 
@@ -986,12 +1308,8 @@ def _cms_available():
     return find_spec("plugins.cms.src.services.cms_image_service") is not None
 
 
-@shop_bp.route("/api/v1/admin/shop/products/<product_id>/images", methods=["GET"])
-@require_auth
-@require_admin
-@require_permission("shop.products.view")
-def admin_list_product_images(product_id):
-    """List product images."""
+def _list_product_images(product_id):
+    """Ordered image serialisation for one product (DRY; admin + vendor)."""
     from plugins.shop.shop.models.product_image import ProductImage
 
     images = (
@@ -1000,20 +1318,21 @@ def admin_list_product_images(product_id):
         .order_by(ProductImage.sort_order)
         .all()
     )
-    return jsonify({"images": [img.to_dict() for img in images]}), 200
+    return [img.to_dict() for img in images]
 
 
-@shop_bp.route("/api/v1/admin/shop/products/<product_id>/images", methods=["POST"])
-@require_auth
-@require_admin
-@require_permission("shop.products.manage")
-def admin_upload_product_image(product_id):
-    """Upload a product image via CMS file storage."""
+def _upload_product_image(product_id):
+    """Upload a product image via the CMS file-storage chain (DRY).
+
+    Returns ``(product_image, None)`` or ``(None, error_tuple)`` (501 when the
+    CMS plugin is absent, 400 when no ``file`` field is present). Shared by the
+    admin and vendor upload routes so the storage chain never diverges.
+    """
     if not _cms_available():
-        return jsonify({"error": "CMS plugin required for image uploads"}), 501
+        return None, (jsonify({"error": "CMS plugin required for image uploads"}), 501)
 
     if "file" not in request.files:
-        return jsonify({"error": "file upload required"}), 400
+        return None, (jsonify({"error": "file upload required"}), 400)
 
     uploaded_file = request.files["file"]
     file_data = uploaded_file.read()
@@ -1044,18 +1363,14 @@ def admin_upload_product_image(product_id):
     )
     db.session.add(product_image)
     db.session.commit()
-    return jsonify({"image": product_image.to_dict()}), 201
+    return product_image, None
 
 
-@shop_bp.route(
-    "/api/v1/admin/shop/products/<product_id>/images/<image_id>/primary",
-    methods=["POST"],
-)
-@require_auth
-@require_admin
-@require_permission("shop.products.manage")
-def admin_set_product_image_primary(product_id, image_id):
-    """Set a product image as primary."""
+def _set_product_image_primary(product_id, image_id):
+    """Make one image the product's primary (DRY; admin + vendor).
+
+    Returns ``(target, None)`` or ``(None, error_tuple)`` (404 when missing).
+    """
     from plugins.shop.shop.models.product_image import ProductImage
 
     db.session.query(ProductImage).filter_by(product_id=product_id).update(
@@ -1068,22 +1383,18 @@ def admin_set_product_image_primary(product_id, image_id):
         .first()
     )
     if not target:
-        return jsonify({"error": "Image not found"}), 404
+        return None, (jsonify({"error": "Image not found"}), 404)
 
     target.is_primary = True
     db.session.commit()
-    return jsonify({"image": target.to_dict()}), 200
+    return target, None
 
 
-@shop_bp.route(
-    "/api/v1/admin/shop/products/<product_id>/images/<image_id>",
-    methods=["DELETE"],
-)
-@require_auth
-@require_admin
-@require_permission("shop.products.manage")
-def admin_delete_product_image(product_id, image_id):
-    """Delete a product image."""
+def _delete_product_image(product_id, image_id):
+    """Delete an image and promote the next as primary (DRY; admin + vendor).
+
+    Returns ``None`` on success or an ``error_tuple`` (404 when missing).
+    """
     from plugins.shop.shop.models.product_image import ProductImage
 
     target = (
@@ -1109,6 +1420,57 @@ def admin_delete_product_image(product_id, image_id):
             next_image.is_primary = True
 
     db.session.commit()
+    return None
+
+
+@shop_bp.route("/api/v1/admin/shop/products/<product_id>/images", methods=["GET"])
+@require_auth
+@require_admin
+@require_permission("shop.products.view")
+def admin_list_product_images(product_id):
+    """List product images."""
+    return jsonify({"images": _list_product_images(product_id)}), 200
+
+
+@shop_bp.route("/api/v1/admin/shop/products/<product_id>/images", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_upload_product_image(product_id):
+    """Upload a product image via CMS file storage."""
+    product_image, error = _upload_product_image(product_id)
+    if error:
+        return error
+    return jsonify({"image": product_image.to_dict()}), 201
+
+
+@shop_bp.route(
+    "/api/v1/admin/shop/products/<product_id>/images/<image_id>/primary",
+    methods=["POST"],
+)
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_set_product_image_primary(product_id, image_id):
+    """Set a product image as primary."""
+    target, error = _set_product_image_primary(product_id, image_id)
+    if error:
+        return error
+    return jsonify({"image": target.to_dict()}), 200
+
+
+@shop_bp.route(
+    "/api/v1/admin/shop/products/<product_id>/images/<image_id>",
+    methods=["DELETE"],
+)
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_delete_product_image(product_id, image_id):
+    """Delete a product image."""
+    error = _delete_product_image(product_id, image_id)
+    if error:
+        return error
     return jsonify({"message": "Image deleted"}), 200
 
 
@@ -1302,13 +1664,15 @@ def cart_checkout():
             quantity = int(cart_item.get("quantity", 1))
             variant_id = cart_item.get("variant_id")
 
-            # Block stock
-            stock_service.block_stock(
-                product_id=product.id,
-                quantity=quantity,
-                session_id=session_id,
-                variant_id=variant_id,
-            )
+            # Block stock — physical products only. Digital goods have no
+            # inventory, so they are never subject to the availability check.
+            if not product.is_digital:
+                stock_service.block_stock(
+                    product_id=product.id,
+                    quantity=quantity,
+                    session_id=session_id,
+                    variant_id=variant_id,
+                )
 
             # S85.2 (D8): the charged unit price is the computed brutto. The
             # invoice is an immutable financial record (Numeric(10,2) columns),
