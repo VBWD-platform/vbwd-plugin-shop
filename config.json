@@ -7,5 +7,6 @@
   "order_number_prefix": "ORD",
   "tax_included_in_price": true,
   "max_cart_items": 50,
-  "guest_checkout_enabled": true
+  "guest_checkout_enabled": true,
+  "marketplace_enabled": false
 }

@@ -15,6 +15,20 @@ class ProductRepository(BaseRepository[Product]):
     def find_by_sku(self, sku: str) -> Optional[Product]:
         return self._session.query(Product).filter_by(sku=sku).first()
 
+    def find_by_vendor_id(self, vendor_id) -> List[Product]:
+        """Return the products owned by ``vendor_id`` (marketplace vendor-mode).
+
+        Ordered by sort_order then name so the vendor's "my products" list is
+        deterministic. Filtering in SQL (not Python) so a vendor never loads the
+        whole catalog to see their own rows.
+        """
+        return (
+            self._session.query(Product)
+            .filter_by(vendor_id=vendor_id)
+            .order_by(Product.sort_order, Product.name)
+            .all()
+        )
+
     def find_active(self, page: int = 1, per_page: int = 20) -> List[Product]:
         return (
             self._session.query(Product)

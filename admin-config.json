@@ -26,6 +26,13 @@
       "fields": [
         { "key": "enable_digital_products", "label": "Enable Digital Products", "component": "checkbox", "description": "Allow products that don't require shipping" }
       ]
+    },
+    {
+      "id": "marketplace",
+      "label": "Marketplace",
+      "fields": [
+        { "key": "marketplace_enabled", "label": "Enable Vendor Mode", "component": "checkbox", "description": "Let vendors (marketplace.vendor) own products and stamp the selling vendor on checkout invoices" }
+      ]
     }
   ]
 }

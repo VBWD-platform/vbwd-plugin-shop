@@ -75,6 +75,17 @@ class Product(BaseModel):
     # ``prices_display_mode`` core setting; ``"netto"``/``"brutto"`` override it.
     price_display_mode = db.Column(db.String(8), nullable=True)
 
+    # Vendor-mode (marketplace): the owning vendor's ``vbwd_user`` id. ``NULL``
+    # is a platform-owned product. Indexed for the vendor's "my products" filter;
+    # ``ON DELETE SET NULL`` so removing a user reverts their products to the
+    # platform rather than deleting the catalog rows.
+    vendor_id = db.Column(
+        db.UUID,
+        db.ForeignKey("vbwd_user.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Relationships
     images = db.relationship(
         "ProductImage",
@@ -127,6 +138,7 @@ class Product(BaseModel):
             "dimensions": self.dimensions,
             "tax_class": self.tax_class,
             "price_display_mode": self.price_display_mode,
+            "vendor_id": str(self.vendor_id) if self.vendor_id else None,
             "tax_ids": [tax["id"] for tax in taxes],
             "taxes": taxes,
             "primary_image_url": self.primary_image_url,

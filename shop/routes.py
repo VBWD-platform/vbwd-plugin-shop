@@ -3,8 +3,15 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from flask import Blueprint, current_app, jsonify, request, g
 from vbwd.extensions import db
-from vbwd.middleware.auth import require_auth, require_admin, require_permission
+from vbwd.middleware.auth import (
+    require_auth,
+    require_admin,
+    require_permission,
+    require_user_permission,
+)
 
+from plugins.shop.shop.constants import VENDOR_ID_KEY
+from plugins.shop.shop.services.plugin_config import marketplace_enabled
 from plugins.shop.shop.repositories.product_repository import ProductRepository
 from plugins.shop.shop.repositories.product_category_repository import (
     ProductCategoryRepository,
@@ -123,6 +130,136 @@ def _resolve_active_taxes(tax_ids):
             raise TaxAssignmentError(f"Tax is not active: {tax_id}")
         resolved.append(tax)
     return resolved
+
+
+def _create_product_from_payload(data, *, vendor_id=None):
+    """Build + persist a ``Product`` from a create payload (one home, DRY).
+
+    Returns ``(product, None)`` on success or ``(None, error_response)`` where
+    ``error_response`` is a ``(body, status)`` tuple — shared by the admin and
+    the vendor create routes so the field mapping never diverges. ``vendor_id``
+    stamps ownership on the vendor path (``None`` = platform-owned).
+    """
+    from uuid import uuid4
+    from plugins.shop.shop.models.product import Product
+
+    if not data.get("name"):
+        return None, (jsonify({"error": "Name is required"}), 400)
+
+    slug = data.get("slug") or data["name"].lower().replace(" ", "-")
+    repo = ProductRepository(db.session)
+    if repo.find_by_slug(slug):
+        return None, (
+            jsonify({"error": f"Product with slug '{slug}' already exists"}),
+            400,
+        )
+
+    try:
+        price_display_mode = validate_price_display_mode(data.get("price_display_mode"))
+    except ValueError as mode_error:
+        return None, (jsonify({"error": str(mode_error)}), 400)
+
+    product = Product(
+        id=uuid4(),
+        name=data["name"],
+        slug=slug,
+        description=data.get("description"),
+        sku=data.get("sku"),
+        price=float(data.get("price", 0)),
+        is_active=data.get("is_active", True),
+        is_digital=data.get("is_digital", False),
+        has_variants=data.get("has_variants", False),
+        weight=data.get("weight"),
+        dimensions=data.get("dimensions", {}),
+        tax_class=data.get("tax_class", "standard"),
+        price_display_mode=price_display_mode,
+        vendor_id=vendor_id,
+    )
+
+    if "tax_ids" in data:
+        try:
+            product.taxes = _resolve_active_taxes(data["tax_ids"])
+        except TaxAssignmentError as tax_error:
+            return None, (jsonify({"error": str(tax_error)}), 400)
+
+    repo.save(product)
+    return product, None
+
+
+def _apply_product_update(product, data):
+    """Apply an update payload to ``product`` and persist (one home, DRY).
+
+    Returns ``None`` on success or a ``(body, status)`` error tuple. Shared by
+    the admin and the vendor update routes; the caller owns the 404 / ownership
+    checks before calling this.
+    """
+    for field_name in [
+        "name",
+        "description",
+        "sku",
+        "is_active",
+        "is_digital",
+        "has_variants",
+        "weight",
+        "dimensions",
+        "tax_class",
+    ]:
+        if field_name in data:
+            setattr(product, field_name, data[field_name])
+    if "price" in data:
+        product.price = float(data["price"])
+    if "price_display_mode" in data:
+        try:
+            product.price_display_mode = validate_price_display_mode(
+                data["price_display_mode"]
+            )
+        except ValueError as mode_error:
+            return (jsonify({"error": str(mode_error)}), 400)
+    if "tax_ids" in data:
+        try:
+            product.taxes = _resolve_active_taxes(data["tax_ids"])
+        except TaxAssignmentError as tax_error:
+            return (jsonify({"error": str(tax_error)}), 400)
+
+    ProductRepository(db.session).save(product)
+    return None
+
+
+def _create_category_from_payload(data):
+    """Build + persist a ``ProductCategory`` (one home, DRY).
+
+    Returns ``(category, None)`` or ``(None, error_response)``. Shared by the
+    admin and the vendor category-create routes.
+    """
+    from uuid import uuid4
+    from plugins.shop.shop.models.product_category import ProductCategory
+
+    if not data.get("name"):
+        return None, (jsonify({"error": "Name is required"}), 400)
+
+    slug = data.get("slug") or data["name"].lower().replace(" ", "-")
+    repo = ProductCategoryRepository(db.session)
+    if repo.find_by_slug(slug):
+        return None, (jsonify({"error": f"Category '{slug}' already exists"}), 400)
+
+    category = ProductCategory(
+        id=uuid4(),
+        name=data["name"],
+        slug=slug,
+        description=data.get("description"),
+        image_url=data.get("image_url"),
+        parent_id=data.get("parent_id"),
+        sort_order=int(data.get("sort_order", 0)),
+    )
+    repo.save(category)
+    return category, None
+
+
+def _require_marketplace_enabled():
+    """Return a 403 response tuple when vendor-mode is off, else ``None``."""
+    if not marketplace_enabled():
+        return jsonify({"error": "Vendor mode is not enabled"}), 403
+    return None
 
 
 # ── Public: Catalog ──────────────────────────────────────────────────────
@@ -294,48 +431,10 @@ def admin_list_products():
 @require_permission("shop.products.manage")
 def admin_create_product():
     """Create a new product."""
-    from uuid import uuid4
-    from plugins.shop.shop.models.product import Product
-
     data = request.get_json() or {}
-    if not data.get("name"):
-        return jsonify({"error": "Name is required"}), 400
-
-    slug = data.get("slug") or data["name"].lower().replace(" ", "-")
-    repo = ProductRepository(db.session)
-
-    if repo.find_by_slug(slug):
-        return jsonify({"error": f"Product with slug '{slug}' already exists"}), 400
-
-    try:
-        price_display_mode = validate_price_display_mode(data.get("price_display_mode"))
-    except ValueError as mode_error:
-        return jsonify({"error": str(mode_error)}), 400
-
-    product = Product(
-        id=uuid4(),
-        name=data["name"],
-        slug=slug,
-        description=data.get("description"),
-        sku=data.get("sku"),
-        price=float(data.get("price", 0)),
-        is_active=data.get("is_active", True),
-        is_digital=data.get("is_digital", False),
-        has_variants=data.get("has_variants", False),
-        weight=data.get("weight"),
-        dimensions=data.get("dimensions", {}),
-        tax_class=data.get("tax_class", "standard"),
-        price_display_mode=price_display_mode,
-    )
-
-    if "tax_ids" in data:
-        try:
-            product.taxes = _resolve_active_taxes(data["tax_ids"])
-        except TaxAssignmentError as tax_error:
-            return jsonify({"error": str(tax_error)}), 400
-
-    repo.save(product)
-
+    product, error = _create_product_from_payload(data)
+    if error:
+        return error
     return jsonify({"product": product.to_dict(), "message": "Product created"}), 201
 
 
@@ -364,36 +463,9 @@ def admin_update_product(product_id):
         return jsonify({"error": "Product not found"}), 404
 
     data = request.get_json() or {}
-    for field_name in [
-        "name",
-        "description",
-        "sku",
-        "is_active",
-        "is_digital",
-        "has_variants",
-        "weight",
-        "dimensions",
-        "tax_class",
-    ]:
-        if field_name in data:
-            setattr(product, field_name, data[field_name])
-    if "price" in data:
-        product.price = float(data["price"])
-    if "price_display_mode" in data:
-        try:
-            product.price_display_mode = validate_price_display_mode(
-                data["price_display_mode"]
-            )
-        except ValueError as mode_error:
-            return jsonify({"error": str(mode_error)}), 400
-    if "tax_ids" in data:
-        # Replace-set: the new assignment fully supersedes the old one.
-        try:
-            product.taxes = _resolve_active_taxes(data["tax_ids"])
-        except TaxAssignmentError as tax_error:
-            return jsonify({"error": str(tax_error)}), 400
-
-    repo.save(product)
+    error = _apply_product_update(product, data)
+    if error:
+        return error
     return jsonify({"product": product.to_dict()}), 200
 
 
@@ -594,28 +666,10 @@ def admin_list_categories():
 @require_permission("shop.categories.manage")
 def admin_create_category():
     """Create product category."""
-    from uuid import uuid4
-    from plugins.shop.shop.models.product_category import ProductCategory
-
     data = request.get_json() or {}
-    if not data.get("name"):
-        return jsonify({"error": "Name is required"}), 400
-
-    slug = data.get("slug") or data["name"].lower().replace(" ", "-")
-    repo = ProductCategoryRepository(db.session)
-    if repo.find_by_slug(slug):
-        return jsonify({"error": f"Category '{slug}' already exists"}), 400
-
-    category = ProductCategory(
-        id=uuid4(),
-        name=data["name"],
-        slug=slug,
-        description=data.get("description"),
-        image_url=data.get("image_url"),
-        parent_id=data.get("parent_id"),
-        sort_order=int(data.get("sort_order", 0)),
-    )
-    repo.save(category)
+    category, error = _create_category_from_payload(data)
+    if error:
+        return error
     return jsonify({"category": category.to_dict()}), 201
 
 
@@ -670,6 +724,192 @@ def admin_delete_category(category_id):
         return jsonify({"error": "Category not found"}), 404
     repo.delete(category)
     return jsonify({"message": "Category deleted"}), 200
+
+
+# ── Vendor: Self-service (marketplace vendor-mode) ───────────────────
+#
+# Gated behind the ``marketplace_enabled`` config flag AND the user-facing
+# ``marketplace.vendor`` permission. A vendor owns the products they create
+# (``vendor_id`` = their user id) and may only edit their own. When vendor-mode
+# is off these routes return 403 (classic single-owner shop). The permission is
+# the central marketplace plugin's convention; shop never imports marketplace.
+
+
+@shop_bp.route("/api/v1/shop/vendor/products", methods=["POST"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_create_product():
+    """Vendor self-service: create a product the calling vendor owns."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    data = request.get_json() or {}
+    product, error = _create_product_from_payload(data, vendor_id=g.user_id)
+    if error:
+        return error
+    return jsonify({"product": product.to_dict(), "message": "Product created"}), 201
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>", methods=["PUT"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_update_product(product_id):
+    """Vendor self-service: edit a product the calling vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductRepository(db.session)
+    product = repo.find_by_id(product_id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+    if str(product.vendor_id) != str(g.user_id):
+        return jsonify({"error": "You do not own this product"}), 403
+
+    data = request.get_json() or {}
+    error = _apply_product_update(product, data)
+    if error:
+        return error
+    return jsonify({"product": product.to_dict()}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_products():
+    """Vendor self-service: list ONLY the calling vendor's own products."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductRepository(db.session)
+    products = repo.find_by_vendor_id(g.user_id)
+    return jsonify({"products": [product.to_dict() for product in products]}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_get_product(product_id):
+    """Vendor self-service: read a product the calling vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductRepository(db.session)
+    product = repo.find_by_id(product_id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+    if str(product.vendor_id) != str(g.user_id):
+        return jsonify({"error": "You do not own this product"}), 403
+    return jsonify({"product": product.to_dict()}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/products/<product_id>", methods=["DELETE"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_delete_product(product_id):
+    """Vendor self-service: delete a product the calling vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductRepository(db.session)
+    product = repo.find_by_id(product_id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+    if str(product.vendor_id) != str(g.user_id):
+        return jsonify({"error": "You do not own this product"}), 403
+
+    repo.delete(product.id)
+    return jsonify({"success": True}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/categories", methods=["POST"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_create_category():
+    """Vendor self-service: create a product category (no per-row ownership)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    data = request.get_json() or {}
+    category, error = _create_category_from_payload(data)
+    if error:
+        return error
+    return jsonify({"category": category.to_dict()}), 201
+
+
+@shop_bp.route("/api/v1/shop/vendor/categories", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_categories():
+    """Vendor self-service: list all shop categories (no per-row ownership)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductCategoryRepository(db.session)
+    categories = repo.find_all_sorted()
+    return jsonify({"categories": [c.to_dict() for c in categories]}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/categories/<category_id>", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_get_category(category_id):
+    """Vendor self-service: read a single shop category."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductCategoryRepository(db.session)
+    category = repo.find_by_id(category_id)
+    if not category:
+        return jsonify({"error": "Category not found"}), 404
+    return jsonify({"category": category.to_dict()}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/categories/<category_id>", methods=["PUT"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_update_category(category_id):
+    """Vendor self-service: update a shop category (no per-row ownership)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductCategoryRepository(db.session)
+    category = repo.find_by_id(category_id)
+    if not category:
+        return jsonify({"error": "Category not found"}), 404
+
+    data = request.get_json() or {}
+    for field_name in ["name", "slug", "description"]:
+        if field_name in data:
+            setattr(category, field_name, data[field_name])
+    repo.save(category)
+    return jsonify({"category": category.to_dict()}), 200
+
+
+@shop_bp.route("/api/v1/shop/vendor/categories/<category_id>", methods=["DELETE"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_delete_category(category_id):
+    """Vendor self-service: delete a shop category (no per-row ownership)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    repo = ProductCategoryRepository(db.session)
+    category = repo.find_by_id(category_id)
+    if not category:
+        return jsonify({"error": "Category not found"}), 404
+
+    repo.delete(category.id)
+    return jsonify({"success": True}), 200
 
 
 # ── Admin: Stock ─────────────────────────────────────────────────────
@@ -1112,6 +1352,13 @@ def cart_checkout():
                 # values are the recorded tax split for the charged brutto.
                 "price_breakdown": computed_price.to_dict(),
             }
+            # Vendor-mode (marketplace): stamp the selling vendor's user id onto
+            # the buyer invoice line so the central marketplace plugin credits
+            # the vendor on ``invoice.paid``. Merged (never clobbers other keys),
+            # only for vendor-owned products, only when vendor-mode is enabled —
+            # shop stamps a LOCAL literal and never imports marketplace.
+            if marketplace_enabled() and product.vendor_id is not None:
+                line_item.extra_data[VENDOR_ID_KEY] = str(product.vendor_id)
             db.session.add(line_item)
             product_line_items.append(line_item)
             # S77: freeze the product's tags + custom-fields onto the line item

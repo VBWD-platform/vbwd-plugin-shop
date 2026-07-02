@@ -1,5 +1,5 @@
 """Shop plugin — products, orders, stock, shipping."""
-from vbwd.plugins.base import BasePlugin, PluginMetadata
+from vbwd.plugins.base import BasePlugin, PluginMetadata, PublicRouteDeclaration
 from plugins.shop.shop.shipping_registry import ShippingMethodRegistry
 
 # Module-level singleton — shipping provider plugins register here
@@ -16,6 +16,11 @@ DEFAULT_CONFIG = {
     "tax_included_in_price": True,
     "max_cart_items": 50,
     "guest_checkout_enabled": True,
+    # Vendor-mode: when True, users holding ``marketplace.vendor`` can own
+    # products via the self-service vendor routes and checkout stamps the
+    # selling vendor's id onto the buyer invoice line (the marketplace credits
+    # from it). Default False = classic single-owner shop behaviour.
+    "marketplace_enabled": False,
 }
 
 
@@ -35,6 +40,17 @@ class ShopPlugin(BasePlugin):
         if config:
             merged.update(config)
         super().initialize(merged)
+
+    def declare_public_routes(self) -> PublicRouteDeclaration:
+        """Public shop storefront catalog reads (categories + products)."""
+        return PublicRouteDeclaration(
+            read={
+                "/api/v1/shop/categories": "Public shop category listing for the storefront.",
+                "/api/v1/shop/categories/<slug>": "Public single shop category for the storefront.",
+                "/api/v1/shop/products": "Public shop product listing for the storefront.",
+                "/api/v1/shop/products/<slug>": "Public single shop product for the storefront.",
+            },
+        )
 
     def get_blueprint(self):
         from plugins.shop.shop.routes import shop_bp
