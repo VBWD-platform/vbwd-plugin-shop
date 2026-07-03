@@ -1305,7 +1305,14 @@ def _cms_available():
     """Check if CMS plugin is installed."""
     from importlib.util import find_spec
 
-    return find_spec("plugins.cms.src.services.cms_image_service") is not None
+    try:
+        return find_spec("plugins.cms.src.services.cms_image_service") is not None
+    except (ImportError, ValueError):
+        # find_spec imports parent packages; a missing ``plugins.cms`` raises
+        # ModuleNotFoundError (a subclass of ImportError) rather than returning
+        # None. Treat any import failure as "CMS absent" so the caller returns
+        # the 501 guard instead of a 500.
+        return False
 
 
 def _list_product_images(product_id):
