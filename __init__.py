@@ -162,6 +162,27 @@ class ShopPlugin(BasePlugin):
 
         search_provider_registry.register(ShopProductSearchProvider())
 
+        # Marketplace vendor-listings seam — contribute this vendor's products to
+        # the marketplace admin "what does this user sell?" aggregation. The soft
+        # import lives HERE (the plugin wiring root, not shop source) so shop's
+        # source stays marketplace-free (test_vendor_mode_contract) AND the
+        # per-plugin isolated CI (shop without marketplace) still enables.
+        try:
+            from plugins.marketplace.marketplace.services import (
+                vendor_listings_registry as marketplace_listings_registry,
+            )
+        except ImportError:
+            marketplace_listings_registry = None
+        if marketplace_listings_registry is not None:
+            from plugins.shop.shop.marketplace_listings import (
+                SHOP_LISTING_TYPE_ID,
+                vendor_listings_provider,
+            )
+
+            marketplace_listings_registry.register_vendor_listings_provider(
+                SHOP_LISTING_TYPE_ID, vendor_listings_provider
+            )
+
     def on_disable(self):
         from flask import current_app
 
@@ -190,6 +211,21 @@ class ShopPlugin(BasePlugin):
         from vbwd.services.search import search_provider_registry
 
         search_provider_registry.unregister("shop_product")
+
+        # Mirror of the on_enable registration — guarded soft import so the
+        # source stays marketplace-free and disable is safe when absent.
+        try:
+            from plugins.marketplace.marketplace.services import (
+                vendor_listings_registry as marketplace_listings_registry,
+            )
+        except ImportError:
+            marketplace_listings_registry = None
+        if marketplace_listings_registry is not None:
+            from plugins.shop.shop.marketplace_listings import SHOP_LISTING_TYPE_ID
+
+            marketplace_listings_registry.unregister_vendor_listings_provider(
+                SHOP_LISTING_TYPE_ID
+            )
 
     @property
     def admin_permissions(self):
