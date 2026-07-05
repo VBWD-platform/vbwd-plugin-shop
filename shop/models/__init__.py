@@ -1,5 +1,6 @@
 """Ecommerce models — import all to register with SQLAlchemy."""
 from plugins.shop.shop.models.product import Product  # noqa: F401
+from plugins.shop.shop.models.product_type import ProductType  # noqa: F401
 from plugins.shop.shop.models.product_variant import ProductVariant  # noqa: F401
 from plugins.shop.shop.models.product_category import ProductCategory  # noqa: F401
 from plugins.shop.shop.models.product_image import ProductImage  # noqa: F401

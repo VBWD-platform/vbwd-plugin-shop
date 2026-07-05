@@ -75,6 +75,15 @@ class Product(BaseModel):
     # ``prices_display_mode`` core setting; ``"netto"``/``"brutto"`` override it.
     price_display_mode = db.Column(db.String(8), nullable=True)
 
+    # S116.1 — the product's type (a named additive field cluster). ``NULL`` is
+    # the simple default product (base fields only). Soft-ref to
+    # ``shop_product_type.slug`` — loose coupling, NOT a hard FK, so a disabled
+    # type-owning plugin leaves a readable slug that simply renders no extra
+    # cluster. ``type_field_values`` holds the per-product values keyed by the
+    # type's field slugs (empty when there is no type).
+    product_type_slug = db.Column(db.String(100), nullable=True, index=True)
+    type_field_values = db.Column(JSONB, nullable=True, default=dict)
+
     # Vendor-mode (marketplace): the owning vendor's ``vbwd_user`` id. ``NULL``
     # is a platform-owned product. Indexed for the vendor's "my products" filter;
     # ``ON DELETE SET NULL`` so removing a user reverts their products to the
@@ -138,6 +147,8 @@ class Product(BaseModel):
             "dimensions": self.dimensions,
             "tax_class": self.tax_class,
             "price_display_mode": self.price_display_mode,
+            "product_type_slug": self.product_type_slug,
+            "type_field_values": self.type_field_values or {},
             "vendor_id": str(self.vendor_id) if self.vendor_id else None,
             "tax_ids": [tax["id"] for tax in taxes],
             "taxes": taxes,

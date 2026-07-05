@@ -13,6 +13,7 @@ plugins/ecommerce/
 │   │   ├── product.py           # Product (name, slug, sku, price, variants flag)
 │   │   ├── product_variant.py   # ProductVariant (size, colour, sku override)
 │   │   ├── product_category.py  # ProductCategory (tree via parent_id)
+│   │   ├── product_type.py      # ProductType (S116.1: named additive field cluster)
 │   │   ├── product_image.py     # ProductImage (url, sort_order)
 │   │   ├── warehouse.py         # Warehouse (name, address, is_active)
 │   │   ├── warehouse_stock.py   # WarehouseStock (quantity, reserved, per-warehouse)
@@ -113,6 +114,65 @@ Also adds a generic, vertical-agnostic **checkout-validation registry**
 (`shop/checkout_validation_registry.py`): the cart-checkout route runs every
 registered validator BEFORE blocking stock (fail-closed). Shop ships none; a
 downstream module registers its own purchase gates without editing shop.
+
+### Admin -- Product types (S116.1, perm `shop.products.manage`)
+
+A **product type** is a named, *additive cluster of custom fields* layered on the
+universal base product. It carries **no behaviour columns** — fields only. A
+product references at most one type via `Product.product_type_slug` (nullable;
+`NULL` = the simple default product, base fields only) and stores its per-product
+answers in `Product.type_field_values` (JSONB). Types live in the
+`shop_product_type` table; the field cluster is a list of descriptors:
+
+```json
+{
+  "slug": "download_url",
+  "type": "url",
+  "label": "Download URL",
+  "required": false,
+  "options": [],          // for select / multiselect
+  "help": "Where the buyer downloads the product after purchase.",
+  "sort_order": 0
+}
+```
+
+Supported field `type`s: `string` / `text` / `url` / `textarea`, `integer`,
+`number` / `float` / `decimal`, `boolean`, `select`, `multiselect`. Unknown
+types pass through unchecked (forward-compatible). On save,
+`services/product_type_service.validate_type_field_values()` enforces that
+required fields are present, each value matches its declared type, and
+`select` / `multiselect` values are drawn from the field's `options` (violations
+→ 400).
+
+**Two provenance modes** (`ProductType.source`):
+
+- `admin` — created via the API/UI below; fully editable and deletable.
+- `plugin` — registered from code (see below) and **read-only in the UI**
+  (`PUT` / `DELETE` return 409); the owning plugin owns the cluster.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/shop/product-types` | Public: active types (for storefront/forms) |
+| GET | `/api/v1/shop/product-types/<slug>` | Public: single type |
+| GET | `/api/v1/admin/shop/product-types` | All types (including inactive) |
+| POST | `/api/v1/admin/shop/product-types` | Create an `admin`-sourced type |
+| PUT | `/api/v1/admin/shop/product-types/<slug>` | Update (409 on a `plugin` type) |
+| DELETE | `/api/v1/admin/shop/product-types/<slug>` | Delete (409 on a `plugin` type) |
+
+Create body (POST): `{name, slug, description?, is_active?, product_type_fields[]}`.
+
+**Plugin-owned types (OCP seam).** A plugin's `on_enable` calls
+`services/product_type_registry.register_product_type(descriptor)`; on the shop
+plugin's enable, `reconcile_product_types()` upserts every registered descriptor
+into `shop_product_type` idempotently (`source='plugin'`, read-only in the UI).
+Shop self-registers a `digital` type (`DIGITAL_TYPE_DESCRIPTOR`) as the reference
+example — adding a type never edits shop. Reconcile rules: unknown slug → insert;
+existing `plugin` row → overwrite name/description/fields; existing `admin` row →
+never clobbered.
+
+Migrations: `20260705_shop_product_type` (the `shop_product_type` table) and
+`20260705_shop_product_type_cols` (`product_type_slug` + `type_field_values` on
+`shop_product`).
 
 ### Admin -- Orders
 

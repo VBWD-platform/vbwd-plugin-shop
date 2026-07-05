@@ -21,6 +21,14 @@ from plugins.shop.shop.repositories.warehouse_stock_repository import (
 )
 from plugins.shop.shop.repositories.warehouse_repository import WarehouseRepository
 from plugins.shop.shop.repositories.order_repository import OrderRepository
+from plugins.shop.shop.repositories.product_type_repository import (
+    ProductTypeRepository,
+)
+from plugins.shop.shop.models.product_type import PRODUCT_TYPE_SOURCE_PLUGIN
+from plugins.shop.shop.services.product_type_service import (
+    ProductTypeValidationError,
+    validate_type_field_values,
+)
 from plugins.shop.shop.services.product_pricing_service import ProductPricingService
 from plugins.shop.shop.models.product import validate_price_display_mode
 from vbwd.models.tax import Tax
@@ -132,6 +140,29 @@ def _resolve_active_taxes(tax_ids):
     return resolved
 
 
+def _validate_product_type_selection(slug, values):
+    """Validate a product's ``(product_type_slug, type_field_values)`` at save.
+
+    Returns ``(normalized_slug, normalized_values, None)`` on success or
+    ``(None, None, error_tuple)`` where ``error_tuple`` is a ``(body, 400)`` pair.
+    A falsy ``slug`` = the base default product: values are ignored and stored as
+    ``{}`` (S116 §4). Otherwise the type must exist and ``values`` must satisfy
+    the type's field cluster. The single home shared by create + update (DRY).
+    """
+    if not slug:
+        return None, {}, None
+    product_type = ProductTypeRepository(db.session).find_by_slug(slug)
+    if product_type is None:
+        return None, None, (jsonify({"error": f"Unknown product type '{slug}'"}), 400)
+    try:
+        cleaned = validate_type_field_values(
+            product_type.product_type_fields or [], values
+        )
+    except ProductTypeValidationError as type_error:
+        return None, None, (jsonify({"error": str(type_error)}), 400)
+    return slug, cleaned, None
+
+
 def _create_product_from_payload(data, *, vendor_id=None):
     """Build + persist a ``Product`` from a create payload (one home, DRY).
 
@@ -159,6 +190,12 @@ def _create_product_from_payload(data, *, vendor_id=None):
     except ValueError as mode_error:
         return None, (jsonify({"error": str(mode_error)}), 400)
 
+    type_slug, type_values, type_error = _validate_product_type_selection(
+        data.get("product_type_slug"), data.get("type_field_values")
+    )
+    if type_error:
+        return None, type_error
+
     product = Product(
         id=uuid4(),
         name=data["name"],
@@ -173,6 +210,8 @@ def _create_product_from_payload(data, *, vendor_id=None):
         dimensions=data.get("dimensions", {}),
         tax_class=data.get("tax_class", "standard"),
         price_display_mode=price_display_mode,
+        product_type_slug=type_slug,
+        type_field_values=type_values,
         vendor_id=vendor_id,
     )
 
@@ -220,6 +259,19 @@ def _apply_product_update(product, data):
             product.taxes = _resolve_active_taxes(data["tax_ids"])
         except TaxAssignmentError as tax_error:
             return (jsonify({"error": str(tax_error)}), 400)
+
+    if "product_type_slug" in data or "type_field_values" in data:
+        effective_slug = data.get("product_type_slug", product.product_type_slug)
+        effective_values = data.get(
+            "type_field_values", product.type_field_values or {}
+        )
+        type_slug, type_values, type_error = _validate_product_type_selection(
+            effective_slug, effective_values
+        )
+        if type_error:
+            return type_error
+        product.product_type_slug = type_slug
+        product.type_field_values = type_values
 
     ProductRepository(db.session).save(product)
     return None
@@ -417,6 +469,29 @@ def get_category(slug):
     return jsonify({"category": category.to_dict()}), 200
 
 
+# ── Public: Product types (S116.1) ───────────────────────────────────────
+
+
+@shop_bp.route("/api/v1/shop/product-types", methods=["GET"])
+def list_product_types():
+    """Active product types + their field clusters (storefront + admin read)."""
+    repo = ProductTypeRepository(db.session)
+    return (
+        jsonify({"product_types": [pt.to_dict() for pt in repo.find_active()]}),
+        200,
+    )
+
+
+@shop_bp.route("/api/v1/shop/product-types/<slug>", methods=["GET"])
+def get_product_type(slug):
+    """A single type's resolved field set by slug."""
+    repo = ProductTypeRepository(db.session)
+    product_type = repo.find_by_slug(slug)
+    if not product_type:
+        return jsonify({"error": "Product type not found"}), 404
+    return jsonify({"product_type": product_type.to_dict()}), 200
+
+
 # ── Public: Orders ───────────────────────────────────────────────────────
 
 
@@ -533,6 +608,100 @@ def admin_delete_product(product_id):
         return jsonify({"error": "Product not found"}), 404
     repo.delete(product)
     return jsonify({"message": "Product deleted"}), 200
+
+
+# ── Admin: Product types (S116.1) ────────────────────────────────────────
+
+
+@shop_bp.route("/api/v1/admin/shop/product-types", methods=["GET"])
+@require_auth
+@require_admin
+@require_permission("shop.products.view")
+def admin_list_product_types():
+    """Every product type (active or not, plugin- and admin-sourced)."""
+    repo = ProductTypeRepository(db.session)
+    return (
+        jsonify({"product_types": [pt.to_dict() for pt in repo.list_all()]}),
+        200,
+    )
+
+
+@shop_bp.route("/api/v1/admin/shop/product-types", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_create_product_type():
+    """Create an ``admin``-sourced (fully editable) product type."""
+    from uuid import uuid4
+    from plugins.shop.shop.models.product_type import (
+        PRODUCT_TYPE_SOURCE_ADMIN,
+        ProductType,
+    )
+
+    data = request.get_json() or {}
+    name = data.get("name")
+    slug = data.get("slug")
+    if not name or not slug:
+        return jsonify({"error": "name and slug are required"}), 400
+
+    repo = ProductTypeRepository(db.session)
+    if repo.find_by_slug(slug):
+        return jsonify({"error": f"Product type '{slug}' already exists"}), 400
+
+    product_type = ProductType(
+        id=uuid4(),
+        slug=slug,
+        name=name,
+        description=data.get("description"),
+        product_type_fields=data.get("product_type_fields", []),
+        source=PRODUCT_TYPE_SOURCE_ADMIN,
+        is_active=data.get("is_active", True),
+    )
+    repo.save(product_type)
+    return jsonify({"product_type": product_type.to_dict()}), 201
+
+
+@shop_bp.route("/api/v1/admin/shop/product-types/<slug>", methods=["PUT"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_update_product_type(slug):
+    """Update an ``admin``-sourced type; plugin-owned types are read-only (409)."""
+    repo = ProductTypeRepository(db.session)
+    product_type = repo.find_by_slug(slug)
+    if not product_type:
+        return jsonify({"error": "Product type not found"}), 404
+    if product_type.source == PRODUCT_TYPE_SOURCE_PLUGIN:
+        return (
+            jsonify({"error": "Plugin-owned product types are read-only"}),
+            409,
+        )
+
+    data = request.get_json() or {}
+    for field_name in ["name", "description", "product_type_fields", "is_active"]:
+        if field_name in data:
+            setattr(product_type, field_name, data[field_name])
+    repo.save(product_type)
+    return jsonify({"product_type": product_type.to_dict()}), 200
+
+
+@shop_bp.route("/api/v1/admin/shop/product-types/<slug>", methods=["DELETE"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_delete_product_type(slug):
+    """Delete an ``admin``-sourced type; plugin-owned types are read-only (409)."""
+    repo = ProductTypeRepository(db.session)
+    product_type = repo.find_by_slug(slug)
+    if not product_type:
+        return jsonify({"error": "Product type not found"}), 404
+    if product_type.source == PRODUCT_TYPE_SOURCE_PLUGIN:
+        return (
+            jsonify({"error": "Plugin-owned product types are read-only"}),
+            409,
+        )
+    repo.delete(product_type.id)
+    return jsonify({"message": "Product type deleted"}), 200
 
 
 # ── Admin: Orders ────────────────────────────────────────────────────────

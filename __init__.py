@@ -49,6 +49,8 @@ class ShopPlugin(BasePlugin):
                 "/api/v1/shop/categories/<slug>": "Public single shop category for the storefront.",
                 "/api/v1/shop/products": "Public shop product listing for the storefront.",
                 "/api/v1/shop/products/<slug>": "Public single shop product for the storefront.",
+                "/api/v1/shop/product-types": "Public shop product-type listing (field clusters).",
+                "/api/v1/shop/product-types/<slug>": "Public single shop product type by slug.",
             },
         )
 
@@ -82,6 +84,31 @@ class ShopPlugin(BasePlugin):
                 "[shop] Failed to register data exchangers: %s", exchanger_error
             )
 
+    def _reconcile_product_types(self) -> None:
+        """S116.1 — self-register the ``digital`` type + reconcile every
+        registered descriptor into ``shop_product_type`` (idempotent upsert).
+
+        Runs on enable so the code registry (shop's own ``digital`` cluster plus
+        any descriptor a downstream plugin registered) is materialised as DB
+        rows. Guarded so a reconcile hiccup never blocks plugin enable.
+        """
+        import logging
+
+        try:
+            from vbwd.extensions import db
+            from plugins.shop.shop.services.product_type_registry import (
+                DIGITAL_TYPE_DESCRIPTOR,
+                reconcile_product_types,
+                register_product_type,
+            )
+
+            register_product_type(DIGITAL_TYPE_DESCRIPTOR)
+            reconcile_product_types(db.session)
+        except Exception as reconcile_error:
+            logging.getLogger(__name__).warning(
+                "[shop] Failed to reconcile product types: %s", reconcile_error
+            )
+
     def on_enable(self):
         import plugins.shop.shop.models  # noqa: F401
 
@@ -103,6 +130,9 @@ class ShopPlugin(BasePlugin):
         from plugins.shop.shop.repositories.product_repository import (
             ProductRepository,
         )
+        from plugins.shop.shop.repositories.product_type_repository import (
+            ProductTypeRepository,
+        )
         from plugins.shop.shop.repositories.product_variant_repository import (
             ProductVariantRepository,
         )
@@ -122,6 +152,7 @@ class ShopPlugin(BasePlugin):
                 container,
                 {
                     "shop_product_repository": ProductRepository,
+                    "shop_product_type_repository": ProductTypeRepository,
                     "shop_product_variant_repository": ProductVariantRepository,
                     "shop_product_category_repository": ProductCategoryRepository,
                     "shop_order_repository": OrderRepository,
@@ -133,6 +164,10 @@ class ShopPlugin(BasePlugin):
             )
 
         self._register_data_exchangers()
+
+        # S116.1 — materialise registered product-type descriptors as
+        # ``shop_product_type`` rows (idempotent upsert; commits its own session).
+        self._reconcile_product_types()
 
         # S77 — make products addressable by the generic tags / custom-fields
         # framework. Registering the entity type lets the core value endpoints
@@ -194,6 +229,7 @@ class ShopPlugin(BasePlugin):
                 container,
                 [
                     "shop_product_repository",
+                    "shop_product_type_repository",
                     "shop_product_variant_repository",
                     "shop_product_category_repository",
                     "shop_order_repository",
