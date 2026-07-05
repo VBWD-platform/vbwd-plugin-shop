@@ -85,8 +85,9 @@ class ShopPlugin(BasePlugin):
             )
 
     def _reconcile_product_types(self) -> None:
-        """S116.1 — self-register the ``digital`` type + reconcile every
-        registered descriptor into ``shop_product_type`` (idempotent upsert).
+        """S116.1/S116.4 — self-register the shop's default types
+        (``simple_product`` + ``digital``) + reconcile every registered
+        descriptor into ``shop_product_type`` (idempotent upsert).
 
         Runs on enable so the code registry (shop's own ``digital`` cluster plus
         any descriptor a downstream plugin registered) is materialised as DB
@@ -98,10 +99,12 @@ class ShopPlugin(BasePlugin):
             from vbwd.extensions import db
             from plugins.shop.shop.services.product_type_registry import (
                 DIGITAL_TYPE_DESCRIPTOR,
+                SIMPLE_PRODUCT_TYPE_DESCRIPTOR,
                 reconcile_product_types,
                 register_product_type,
             )
 
+            register_product_type(SIMPLE_PRODUCT_TYPE_DESCRIPTOR)
             register_product_type(DIGITAL_TYPE_DESCRIPTOR)
             reconcile_product_types(db.session)
         except Exception as reconcile_error:

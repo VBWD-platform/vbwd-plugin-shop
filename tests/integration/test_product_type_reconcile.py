@@ -15,6 +15,8 @@ from plugins.shop.shop.repositories.product_type_repository import (
     ProductTypeRepository,
 )
 from plugins.shop.shop.services.product_type_registry import (
+    PRODUCT_TYPE_SLUG_SIMPLE,
+    SIMPLE_PRODUCT_TYPE_DESCRIPTOR,
     ProductTypeRegistry,
     reconcile_product_types,
 )
@@ -71,6 +73,33 @@ def test_reconcile_overwrites_plugin_field_cluster(db):
     row = ProductTypeRepository(db.session).find_by_slug(slug)
     assert row.name == "Second"
     assert row.product_type_fields == [{"slug": "b", "type": "string"}]
+
+
+def test_simple_product_descriptor_is_the_empty_cluster_default():
+    """S116.4 — ``simple_product`` is the named default: empty field cluster."""
+    assert SIMPLE_PRODUCT_TYPE_DESCRIPTOR["slug"] == PRODUCT_TYPE_SLUG_SIMPLE
+    assert SIMPLE_PRODUCT_TYPE_DESCRIPTOR["slug"] == "simple_product"
+    assert SIMPLE_PRODUCT_TYPE_DESCRIPTOR["name"] == "Simple product"
+    assert SIMPLE_PRODUCT_TYPE_DESCRIPTOR["product_type_fields"] == []
+    assert SIMPLE_PRODUCT_TYPE_DESCRIPTOR["source"] == PRODUCT_TYPE_SOURCE_PLUGIN
+
+
+def test_reconcile_creates_simple_product_type_idempotently(db):
+    """S116.4 — reconciling the ``simple_product`` descriptor upserts exactly one
+    row with an empty cluster and never duplicates on a re-run."""
+    registry = ProductTypeRegistry()
+    registry.register(SIMPLE_PRODUCT_TYPE_DESCRIPTOR)
+
+    reconcile_product_types(db.session, registry)
+    reconcile_product_types(db.session, registry)
+
+    repo = ProductTypeRepository(db.session)
+    rows = [row for row in repo.list_all() if row.slug == PRODUCT_TYPE_SLUG_SIMPLE]
+    assert len(rows) == 1
+    simple_row = rows[0]
+    assert simple_row.name == "Simple product"
+    assert simple_row.product_type_fields == []
+    assert simple_row.source == PRODUCT_TYPE_SOURCE_PLUGIN
 
 
 def test_reconcile_never_clobbers_admin_row(db):

@@ -25,6 +25,22 @@ from plugins.shop.shop.models.product_type import (
 
 logger = logging.getLogger(__name__)
 
+# Slug of the named default type (S116.4). A base product (``product_type_slug``
+# NULL) and a ``simple_product`` product are conceptually equivalent — both carry
+# an empty field cluster; this is just the named default the UI selector picks.
+PRODUCT_TYPE_SLUG_SIMPLE = "simple_product"
+
+# S116.4 — the shop's default type: the empty cluster, named. NULL (no type)
+# stays valid and equivalent; this row exists only so the UI has a concrete
+# default to select. No DB default, no backfill.
+SIMPLE_PRODUCT_TYPE_DESCRIPTOR = {
+    "slug": PRODUCT_TYPE_SLUG_SIMPLE,
+    "name": "Simple product",
+    "description": "Standard product with no extra field cluster.",
+    "product_type_fields": [],
+    "source": PRODUCT_TYPE_SOURCE_PLUGIN,
+}
+
 # The shop's own self-registered default cluster — proves the seam end to end.
 # ``NULL`` (no type) stays the base-only default; ``digital`` is just another
 # additive type, not a privileged default.
