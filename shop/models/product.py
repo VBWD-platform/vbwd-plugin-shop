@@ -62,7 +62,6 @@ class Product(BaseModel):
     price = db.Column(db.Float, nullable=False, default=0)
 
     is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
-    is_digital = db.Column(db.Boolean, nullable=False, default=False)
     has_variants = db.Column(db.Boolean, nullable=False, default=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
 
@@ -141,7 +140,6 @@ class Product(BaseModel):
             "sku": self.sku,
             "price": self.raw_price,
             "is_active": self.is_active,
-            "is_digital": self.is_digital,
             "has_variants": self.has_variants,
             "weight": str(self.weight) if self.weight else None,
             "dimensions": self.dimensions,

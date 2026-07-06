@@ -43,7 +43,6 @@ def _product(price: float = 100.0, taxes=None) -> Product:
     product.sku = None
     product.price = price
     product.is_active = True
-    product.is_digital = False
     product.has_variants = False
     product.weight = None
     product.dimensions = {}

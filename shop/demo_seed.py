@@ -177,7 +177,7 @@ def _seed_warehouse_products(
             sku=product_data["sku"],
             price=float(product_data["price"]),
             is_active=True,
-            is_digital=product_data.get("is_digital", False),
+            product_type_slug=product_data.get("product_type_slug"),
             has_variants=has_variants,
             weight=product_data.get("weight"),
             tax_class="standard",
@@ -255,6 +255,10 @@ def _seed_warehouse_products(
 
 def _products_data():
     """The 50-SKU demo product catalogue (data only — no DB access)."""
+    from plugins.shop.shop.services.product_type_registry import (
+        PRODUCT_TYPE_SLUG_DIGITAL,
+    )
+
     return [
         # ── Audio (subcategory of Electronics) ──
         {
@@ -785,7 +789,7 @@ def _products_data():
             "price": Decimal("19.99"),
             "cat": "books",
             "desc": "Digital edition of Clean Code.",
-            "is_digital": True,
+            "product_type_slug": PRODUCT_TYPE_SLUG_DIGITAL,
         },
         {
             "name": "E-Book: Python Cookbook",
@@ -794,7 +798,7 @@ def _products_data():
             "price": Decimal("24.99"),
             "cat": "books",
             "desc": "Recipes for mastering Python 3.",
-            "is_digital": True,
+            "product_type_slug": PRODUCT_TYPE_SLUG_DIGITAL,
         },
         {
             "name": "E-Book: Vue.js in Action",
@@ -803,7 +807,7 @@ def _products_data():
             "price": Decimal("22.99"),
             "cat": "books",
             "desc": "Build reactive web apps with Vue 3.",
-            "is_digital": True,
+            "product_type_slug": PRODUCT_TYPE_SLUG_DIGITAL,
         },
         # ── Home & Garden ──
         {

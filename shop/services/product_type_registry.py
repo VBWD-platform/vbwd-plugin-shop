@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 # an empty field cluster; this is just the named default the UI selector picks.
 PRODUCT_TYPE_SLUG_SIMPLE = "simple_product"
 
+# The ``digital`` product type — a downloadable/licensed good with no inventory.
+# This is the single source of truth for the slug that drives the digital
+# checkout stock-skip and the fe "always in stock" behaviour (replaces the old
+# ``Product.is_digital`` boolean).
+PRODUCT_TYPE_SLUG_DIGITAL = "digital"
+
 # S116.4 — the shop's default type: the empty cluster, named. NULL (no type)
 # stays valid and equivalent; this row exists only so the UI has a concrete
 # default to select. No DB default, no backfill.
@@ -45,7 +51,7 @@ SIMPLE_PRODUCT_TYPE_DESCRIPTOR = {
 # ``NULL`` (no type) stays the base-only default; ``digital`` is just another
 # additive type, not a privileged default.
 DIGITAL_TYPE_DESCRIPTOR = {
-    "slug": "digital",
+    "slug": PRODUCT_TYPE_SLUG_DIGITAL,
     "name": "Digital product",
     "description": "A downloadable/licensed product with delivery fields.",
     "product_type_fields": [

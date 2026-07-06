@@ -31,8 +31,12 @@ def _make_user(db):
     return user
 
 
-def _product_no_stock(db, *, is_digital):
-    """Create an active product with NO warehouse stock (zero available)."""
+def _product_no_stock(db, *, product_type_slug):
+    """Create an active product with NO warehouse stock (zero available).
+
+    ``product_type_slug="digital"`` marks the product as a digital good (no
+    inventory); ``None`` is a physical product subject to the stock check.
+    """
     from plugins.shop.shop.models.product import Product
 
     product = Product(
@@ -41,7 +45,7 @@ def _product_no_stock(db, *, is_digital):
         slug=f"nostock-{uuid4().hex[:8]}",
         price=10.0,
         is_active=True,
-        is_digital=is_digital,
+        product_type_slug=product_type_slug,
     )
     db.session.add(product)
     db.session.commit()
@@ -71,7 +75,7 @@ def _checkout(client, product):
 
 def test_digital_product_with_zero_stock_checks_out(db, client, monkeypatch):
     user = _make_user(db)
-    product = _product_no_stock(db, is_digital=True)
+    product = _product_no_stock(db, product_type_slug="digital")
     _auth(monkeypatch, user)
 
     resp = _checkout(client, product)
@@ -81,7 +85,7 @@ def test_digital_product_with_zero_stock_checks_out(db, client, monkeypatch):
 
 def test_physical_product_with_zero_stock_still_fails(db, client, monkeypatch):
     user = _make_user(db)
-    product = _product_no_stock(db, is_digital=False)
+    product = _product_no_stock(db, product_type_slug=None)
     _auth(monkeypatch, user)
 
     resp = _checkout(client, product)

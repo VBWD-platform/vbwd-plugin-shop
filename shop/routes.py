@@ -25,6 +25,9 @@ from plugins.shop.shop.repositories.product_type_repository import (
     ProductTypeRepository,
 )
 from plugins.shop.shop.models.product_type import PRODUCT_TYPE_SOURCE_PLUGIN
+from plugins.shop.shop.services.product_type_registry import (
+    PRODUCT_TYPE_SLUG_DIGITAL as DIGITAL_PRODUCT_TYPE_SLUG,
+)
 from plugins.shop.shop.services.product_type_service import (
     ProductTypeValidationError,
     validate_type_field_values,
@@ -204,7 +207,6 @@ def _create_product_from_payload(data, *, vendor_id=None):
         sku=data.get("sku"),
         price=float(data.get("price", 0)),
         is_active=data.get("is_active", True),
-        is_digital=data.get("is_digital", False),
         has_variants=data.get("has_variants", False),
         weight=data.get("weight"),
         dimensions=data.get("dimensions", {}),
@@ -237,7 +239,6 @@ def _apply_product_update(product, data):
         "description",
         "sku",
         "is_active",
-        "is_digital",
         "has_variants",
         "weight",
         "dimensions",
@@ -1840,9 +1841,10 @@ def cart_checkout():
             quantity = int(cart_item.get("quantity", 1))
             variant_id = cart_item.get("variant_id")
 
-            # Block stock — physical products only. Digital goods have no
-            # inventory, so they are never subject to the availability check.
-            if not product.is_digital:
+            # Block stock — physical products only. Digital goods (the
+            # ``digital`` product type) have no inventory, so they are never
+            # subject to the availability check.
+            if product.product_type_slug != DIGITAL_PRODUCT_TYPE_SLUG:
                 stock_service.block_stock(
                     product_id=product.id,
                     quantity=quantity,
@@ -1884,7 +1886,7 @@ def cart_checkout():
                 "product_slug": product.slug,
                 "product_name": product.name,
                 "product_sku": product.sku,
-                "is_digital": product.is_digital,
+                "is_digital": product.product_type_slug == DIGITAL_PRODUCT_TYPE_SLUG,
                 "variant_id": str(variant_id) if variant_id else None,
                 "quantity": quantity,
                 # S85.2: persist the per-line netto + per-tax breakdown from the

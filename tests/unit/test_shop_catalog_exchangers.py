@@ -139,7 +139,6 @@ class TestProductCategoryLink:
             slug=prod_slug,
             sku=_unique("SKU"),
             price=19,
-            is_digital=False,
             dimensions={"length": 30, "width": 5},
         )
         product.categories.append(category)
@@ -168,7 +167,7 @@ class TestProductCategoryLink:
         rebuilt = db.session.query(Product).filter(Product.slug == prod_slug).first()
         assert rebuilt is not None
         assert rebuilt.price == 19.0
-        assert rebuilt.is_digital is False
+        assert rebuilt.product_type_slug is None
         assert rebuilt.dimensions == {"length": 30, "width": 5}
         assert [c.slug for c in rebuilt.categories] == [cat_slug]
 

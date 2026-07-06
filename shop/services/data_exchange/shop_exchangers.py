@@ -508,7 +508,6 @@ class ShopProductsExchanger(_PermissionMappedModelExchanger):
             "description": f"Synthetic load-test product {index}",
             "price": self._SEED_PRODUCT_PRICE,
             "is_active": True,
-            "is_digital": False,
             "has_variants": False,
             "sort_order": index,
             "tax_class": "standard",
@@ -752,13 +751,17 @@ def build_shop_exchangers(session: Any) -> List[EntityExchanger]:
                 "sku",
                 "price",
                 "is_active",
-                "is_digital",
                 "has_variants",
                 "sort_order",
                 "weight",
                 "dimensions",
                 "product_metadata",
                 "tax_class",
+                # S116: the product type carries the "digital" meaning that the
+                # old ``is_digital`` boolean used to; export/import it so the
+                # digital-ness round-trips.
+                "product_type_slug",
+                "type_field_values",
             ],
             supported_formats=frozenset({"json", "csv"}),
             view_permission=PERM_PRODUCTS_VIEW,
