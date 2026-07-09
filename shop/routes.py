@@ -13,9 +13,13 @@ from vbwd.middleware.auth import (
 from plugins.shop.shop.constants import VENDOR_ID_KEY
 from plugins.shop.shop.services.plugin_config import marketplace_enabled
 from plugins.shop.shop.repositories.product_repository import ProductRepository
+from plugins.shop.shop.repositories.product_variant_repository import (
+    ProductVariantRepository,
+)
 from plugins.shop.shop.repositories.product_category_repository import (
     ProductCategoryRepository,
 )
+from plugins.shop.shop.services.product_copy_service import ProductCopyService
 from plugins.shop.shop.repositories.warehouse_stock_repository import (
     WarehouseStockRepository,
 )
@@ -1673,6 +1677,38 @@ def admin_bulk_delete_products():
             repo.delete(product)
             deleted += 1
     return jsonify({"deleted": deleted}), 200
+
+
+@shop_bp.route("/api/v1/admin/shop/products/bulk-copy", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_bulk_copy_products():
+    """Bulk-duplicate products ("make a copy"); copies are created inactive.
+
+    Follows the shop bulk convention (``{"product_ids": [...]}``). Unknown ids are
+    skipped rather than failing the whole request. Returns 201 with the created
+    copies and their count.
+    """
+    data = request.get_json() or {}
+    product_ids = data.get("product_ids", [])
+    if not product_ids:
+        return jsonify({"error": "product_ids required"}), 400
+
+    service = ProductCopyService(
+        ProductRepository(db.session),
+        ProductVariantRepository(db.session),
+    )
+    copies = service.copy_products(product_ids)
+    return (
+        jsonify(
+            {
+                "products": [product.to_dict() for product in copies],
+                "count": len(copies),
+            }
+        ),
+        201,
+    )
 
 
 @shop_bp.route("/api/v1/admin/shop/products/bulk-activate", methods=["POST"])
