@@ -1808,6 +1808,152 @@ def admin_bulk_deactivate_products():
     return jsonify({"updated": updated}), 200
 
 
+# ── Admin: Bulk Taxonomy (category / tags) ───────────────────────────
+
+BULK_MODE_ADD = "add"
+BULK_MODE_REPLACE = "replace"
+
+
+def _resolve_category_or_404(category_id):
+    """Resolve a category by UUID first, then by slug (shared, DRY).
+
+    Returns ``(category, None)`` or ``(None, error_response)`` where the error is
+    a ``(body, status)`` 400 tuple — an unknown category rejects the whole bulk
+    request before any write, so a typo never partially assigns. A non-UUID
+    ``category_id`` is treated purely as a slug (never handed to the UUID PK
+    lookup, which would raise a DB DataError).
+    """
+    from uuid import UUID
+
+    repo = ProductCategoryRepository(db.session)
+    category = None
+    if category_id:
+        try:
+            UUID(str(category_id))
+        except ValueError:
+            category = repo.find_by_slug(str(category_id))
+        else:
+            category = repo.find_by_id(category_id) or repo.find_by_slug(
+                str(category_id)
+            )
+    if not category:
+        return None, (
+            jsonify({"error": f"Category '{category_id}' not found"}),
+            400,
+        )
+    return category, None
+
+
+@shop_bp.route("/api/v1/admin/shop/products/bulk/assign-category", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_bulk_assign_category():
+    """Assign a category to every selected product (shop bulk convention).
+
+    Body ``{"product_ids": [...], "category_id": "<uuid or slug>",
+    "mode": "add"|"replace"}`` (default ``add``). ``add`` appends the category if
+    absent (idempotent); ``replace`` sets the product's categories to just this
+    one. Unknown product ids are skipped; an unknown category is a 400. Returns
+    ``{"updated": <found+written>, "skipped": <ids not found>}``.
+    """
+    data = request.get_json() or {}
+    product_ids = data.get("product_ids", [])
+    mode = data.get("mode", BULK_MODE_ADD)
+
+    category, error = _resolve_category_or_404(data.get("category_id"))
+    if error:
+        return error
+
+    repo = ProductRepository(db.session)
+    updated = 0
+    skipped = 0
+    for product_id in product_ids:
+        product = repo.find_by_id(product_id)
+        if not product:
+            skipped += 1
+            continue
+        if mode == BULK_MODE_REPLACE:
+            product.categories = [category]
+        elif category not in product.categories:
+            product.categories.append(category)
+        repo.save(product)
+        updated += 1
+    return jsonify({"updated": updated, "skipped": skipped}), 200
+
+
+@shop_bp.route("/api/v1/admin/shop/products/bulk/unassign-category", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_bulk_unassign_category():
+    """Remove a category from every selected product (mirrors CMS unassign).
+
+    Body ``{"product_ids": [...], "category_id": "<uuid or slug>"}``. Unknown
+    product ids are skipped; an unknown category is a 400. Returns
+    ``{"updated": <found>, "skipped": <ids not found>}``.
+    """
+    data = request.get_json() or {}
+    product_ids = data.get("product_ids", [])
+
+    category, error = _resolve_category_or_404(data.get("category_id"))
+    if error:
+        return error
+
+    repo = ProductRepository(db.session)
+    updated = 0
+    skipped = 0
+    for product_id in product_ids:
+        product = repo.find_by_id(product_id)
+        if not product:
+            skipped += 1
+            continue
+        if category in product.categories:
+            product.categories.remove(category)
+        repo.save(product)
+        updated += 1
+    return jsonify({"updated": updated, "skipped": skipped}), 200
+
+
+@shop_bp.route("/api/v1/admin/shop/products/bulk/assign-tags", methods=["POST"])
+@require_auth
+@require_admin
+@require_permission("shop.products.manage")
+def admin_bulk_assign_tags():
+    """Assign tags to every selected product via the core tags port.
+
+    Body ``{"product_ids": [...], "tag_slugs": ["a","b"],
+    "mode": "add"|"replace"}`` (default ``add``). ``add`` unions with each
+    product's existing ``shop_product`` tags; ``replace`` sets them to exactly
+    ``tag_slugs``. Unknown product ids are skipped. Returns
+    ``{"updated": <found+written>, "skipped": <ids not found>}``.
+    """
+    data = request.get_json() or {}
+    product_ids = data.get("product_ids", [])
+    tag_slugs = data.get("tag_slugs", [])
+    mode = data.get("mode", BULK_MODE_ADD)
+    if not isinstance(tag_slugs, list):
+        return jsonify({"error": "tag_slugs must be a list"}), 400
+
+    port = current_app.container.tags_and_custom_fields()
+    repo = ProductRepository(db.session)
+    updated = 0
+    skipped = 0
+    for product_id in product_ids:
+        product = repo.find_by_id(product_id)
+        if not product:
+            skipped += 1
+            continue
+        if mode == BULK_MODE_REPLACE:
+            port.set_tags("shop_product", product.id, list(tag_slugs))
+        else:
+            existing = port.get_tags("shop_product", product.id)
+            merged = existing + [slug for slug in tag_slugs if slug not in existing]
+            port.set_tags("shop_product", product.id, merged)
+        updated += 1
+    return jsonify({"updated": updated, "skipped": skipped}), 200
+
+
 # ── Public: Cart Checkout ────────────────────────────────────────────
 
 
