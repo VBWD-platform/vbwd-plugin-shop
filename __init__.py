@@ -49,6 +49,8 @@ class ShopPlugin(BasePlugin):
                 "/api/v1/shop/categories/<slug>": "Public single shop category for the storefront.",
                 "/api/v1/shop/products": "Public shop product listing for the storefront.",
                 "/api/v1/shop/products/<slug>": "Public single shop product for the storefront.",
+                "/api/v1/shop/filters": "Public catalogue facet descriptor for the storefront filter widget.",
+                "/api/v1/shop/tags": "Public catalogue tag-filter options for the storefront.",
                 "/api/v1/shop/product-types": "Public shop product-type listing (field clusters).",
                 "/api/v1/shop/product-types/<slug>": "Public single shop product type by slug.",
             },

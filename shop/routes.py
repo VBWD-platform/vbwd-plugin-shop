@@ -1,8 +1,11 @@
 """E-commerce routes — public catalog + admin management."""
 from decimal import ROUND_HALF_UP, Decimal
 
+from typing import List, Optional
+
 from flask import Blueprint, current_app, jsonify, request, g
 from vbwd.extensions import db
+from vbwd.utils.pagination import paginate
 from vbwd.middleware.auth import (
     require_auth,
     require_admin,
@@ -374,40 +377,96 @@ def _upsert_product_stock(product_id, data):
 # ── Public: Catalog ──────────────────────────────────────────────────────
 
 
+def _parse_tag_slugs(raw: Optional[str]) -> Optional[List[str]]:
+    """Parse the ``tags`` query param into a slug list (AND filter) or ``None``.
+
+    Comma-separated; empty segments (``a,,b`` == ``a,b``) and surrounding
+    whitespace are ignored. Absent/empty ⇒ ``None`` (no tag filter). Same
+    semantics as ghrm's catalogue list (contract §1).
+    """
+    if not raw:
+        return None
+    slugs = [segment.strip() for segment in raw.split(",") if segment.strip()]
+    return slugs or None
+
+
 @shop_bp.route("/api/v1/shop/products", methods=["GET"])
 def list_products():
-    """Product catalog with search, category filter, pagination."""
+    """Catalogue list (contract): search (``q``), category, tags, pagination.
+
+    Emits the agnostic ``{items, total, page, per_page, pages}`` envelope via the
+    core ``paginate`` helper; ``total`` reflects the effective filter. ``search``
+    is accepted as a deprecated alias for ``q`` (the shop FE moves to ``q``).
+    """
     repo = ProductRepository(db.session)
     page = int(request.args.get("page", 1))
-    per_page = int(request.args.get("per_page", 20))
-    search = request.args.get("search", "").strip()
-    category = request.args.get("category", "").strip()
+    per_page = min(int(request.args.get("per_page", 20)), 100)
+    query = (request.args.get("q") or request.args.get("search") or "").strip() or None
+    category = request.args.get("category", "").strip() or None
+    tag_slugs = _parse_tag_slugs(request.args.get("tags"))
 
-    if search:
-        products = repo.search(search, page, per_page)
-    elif category:
-        products = repo.find_by_category_slug(category, page, per_page)
-    else:
-        products = repo.find_active(page, per_page)
+    result = repo.list_catalogue(
+        page=page,
+        per_page=per_page,
+        query=query,
+        category_slug=category,
+        tag_slugs=tag_slugs,
+    )
+    products = result["items"]
+    tags_by_id = repo.list_product_tags([product.id for product in products])
 
     pricing_service = ProductPricingService(current_app.container.price_factory())
-    product_dicts = []
+    items = []
     for product in products:
         product_dict = product.to_dict()
         product_dict["pricing"] = pricing_service.get_product_pricing_payload(product)
-        product_dicts.append(product_dict)
+        product_dict["tags"] = tags_by_id.get(product.id, [])
+        items.append(product_dict)
 
+    return jsonify(paginate(items, result["total"], page, per_page)), 200
+
+
+@shop_bp.route("/api/v1/shop/filters", methods=["GET"])
+def list_filters():
+    """Facet descriptor (contract §4): the facets the shop catalogue offers.
+
+    Vocabulary-free at the mechanism layer — fe-core renders by ``control`` type
+    only. ``category`` and ``tags`` options are fetched from their own endpoints.
+    """
     return (
         jsonify(
             {
-                "products": product_dicts,
-                "page": page,
-                "per_page": per_page,
-                "total": repo.count_active(),
+                "facets": [
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "control": "select",
+                        "options_endpoint": "/api/v1/shop/categories",
+                    },
+                    {
+                        "key": "tags",
+                        "label": "Tags",
+                        "control": "chips",
+                        "multi": True,
+                        "and": True,
+                        "options_endpoint": "/api/v1/shop/tags",
+                    },
+                ]
             }
         ),
         200,
     )
+
+
+@shop_bp.route("/api/v1/shop/tags", methods=["GET"])
+def list_product_tag_options():
+    """Tag-filter options: tags carried by at least one ACTIVE product.
+
+    Feeds the catalogue widget's tag chips (descriptor ``options_endpoint``), so
+    the filter never lists a tag that would match nothing.
+    """
+    repo = ProductRepository(db.session)
+    return jsonify({"tags": repo.list_used_product_tags()}), 200
 
 
 @shop_bp.route("/api/v1/shop/products/<slug>", methods=["GET"])
