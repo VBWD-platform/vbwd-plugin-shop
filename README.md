@@ -218,3 +218,12 @@ The plugin uses **CUSTOM** line items with `metadata.plugin = "ecommerce"`. When
 ## Dependencies
 
 - `email` plugin (for order notification emails)
+
+## Documentation
+
+Full platform documentation lives at **[vbwd.cc/docs](https://vbwd.cc/docs)**.
+
+- [Plugin system](https://vbwd.cc/docs-plugin-system) — how backend plugins are registered, enabled, and configured
+- [Shop](https://vbwd.cc/docs-core-shop) — documentation for this plugin's domain
+- [Architecture](https://vbwd.cc/docs-architecture) — platform layering and the core-agnosticism rule
+- [Getting started](https://vbwd.cc/docs-getting-started) — install a VBWD instance and enable plugins
