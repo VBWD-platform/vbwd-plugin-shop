@@ -28,6 +28,14 @@
       ]
     },
     {
+      "id": "seo",
+      "label": "SEO",
+      "fields": [
+        { "key": "seo_index_products", "label": "Index Products", "component": "checkbox", "description": "List active products (/shop/product/<slug>) in the sitemap" },
+        { "key": "seo_index_categories", "label": "Index Categories", "component": "checkbox", "description": "List product categories (/shop/category/<slug>) in the sitemap" }
+      ]
+    },
+    {
       "id": "marketplace",
       "label": "Marketplace",
       "fields": [

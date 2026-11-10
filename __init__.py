@@ -1,4 +1,6 @@
 """Shop plugin — products, orders, stock, shipping."""
+from typing import Any, Tuple
+
 from vbwd.plugins.base import BasePlugin, PluginMetadata, PublicRouteDeclaration
 from plugins.shop.shop.shipping_registry import ShippingMethodRegistry
 
@@ -21,10 +23,19 @@ DEFAULT_CONFIG = {
     # selling vendor's id onto the buyer invoice line (the marketplace credits
     # from it). Default False = classic single-owner shop behaviour.
     "marketplace_enabled": False,
+    # S154 — fe-admin "indexable" switches: a switched-off type leaves the
+    # sitemap (shop's providers report count 0 for it).
+    "seo_index_products": True,
+    "seo_index_categories": False,
 }
 
 
 class ShopPlugin(BasePlugin):
+    # The cms registry + providers this instance registered (S154), so
+    # ``on_disable`` removes exactly those without re-importing cms.
+    _sitemap_registry: Any = None
+    _sitemap_providers: Tuple[Any, ...] = ()
+
     @property
     def metadata(self) -> PluginMetadata:
         return PluginMetadata(
@@ -113,6 +124,52 @@ class ShopPlugin(BasePlugin):
             logging.getLogger(__name__).warning(
                 "[shop] Failed to reconcile product types: %s", reconcile_error
             )
+
+    @staticmethod
+    def _import_cms_sitemap_registry() -> Any:
+        """cms's sitemap registry module (raises ``ImportError`` without cms)."""
+        from plugins.cms.src.services import seo_registry
+
+        return seo_registry
+
+    def _register_sitemap_providers(self) -> None:
+        """S154 P2 — contribute shop's sitemap providers when cms is installed.
+
+        cms is optional (D3). The registry is cms-owned and only cms's own
+        sitemap routes read it, so registering while cms is installed but not
+        (yet) enabled is harmless — and keeps this independent of plugin enable
+        order. Without cms importable this is a no-op and shop still enables.
+        Registration is idempotent by provider name (re-enable replaces).
+        """
+        import logging
+
+        try:
+            sitemap_registry = self._import_cms_sitemap_registry()
+        except ImportError as cms_import_error:
+            logging.getLogger(__name__).warning(
+                "[shop] Sitemap providers not registered (cms absent?): %s",
+                cms_import_error,
+            )
+            return
+
+        from vbwd.extensions import db
+        from plugins.shop.shop.sitemap_providers import build_sitemap_providers
+
+        self._sitemap_providers = tuple(
+            build_sitemap_providers(lambda: db.session, sitemap_registry.SitemapEntry)
+        )
+        for provider in self._sitemap_providers:
+            sitemap_registry.register_sitemap_provider(provider)
+        self._sitemap_registry = sitemap_registry
+
+    def _unregister_sitemap_providers(self) -> None:
+        """Mirror of ``_register_sitemap_providers`` (no-op if none registered)."""
+        if self._sitemap_registry is None:
+            return
+        for provider in self._sitemap_providers:
+            self._sitemap_registry.unregister_sitemap_provider(provider)
+        self._sitemap_registry = None
+        self._sitemap_providers = ()
 
     def on_enable(self):
         import plugins.shop.shop.models  # noqa: F401
@@ -223,6 +280,9 @@ class ShopPlugin(BasePlugin):
                 SHOP_LISTING_TYPE_ID, vendor_listings_provider
             )
 
+        # S154 P2 — products + categories in cms's sitemap (cms optional, D3).
+        self._register_sitemap_providers()
+
     def on_disable(self):
         from flask import current_app
 
@@ -252,6 +312,8 @@ class ShopPlugin(BasePlugin):
         from vbwd.services.search import search_provider_registry
 
         search_provider_registry.unregister("shop_product")
+
+        self._unregister_sitemap_providers()
 
         # Mirror of the on_enable registration — guarded soft import so the
         # source stays marketplace-free and disable is safe when absent.

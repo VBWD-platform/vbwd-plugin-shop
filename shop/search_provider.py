@@ -12,9 +12,11 @@ from typing import List, Optional
 
 from vbwd.services.search import SearchHit
 
+from plugins.shop.shop.constants import PRODUCT_PATH_TEMPLATE
+
 ENTITY_TYPE = "shop_product"
 ENTITY_LABEL = "Shop"
-DETAIL_URL_TEMPLATE = "/shop/product/{slug}"
+DETAIL_URL_TEMPLATE = PRODUCT_PATH_TEMPLATE
 
 
 class ShopProductSearchProvider:

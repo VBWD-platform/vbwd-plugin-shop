@@ -1,5 +1,6 @@
 """Product repository."""
-from typing import Any, Dict, Optional, List
+from datetime import datetime
+from typing import Any, Dict, Optional, List, Tuple
 from uuid import UUID
 from sqlalchemy import or_
 from vbwd.repositories.base import BaseRepository
@@ -51,6 +52,26 @@ class ProductRepository(BaseRepository[Product]):
 
     def count_active(self) -> int:
         return self._session.query(Product).filter_by(is_active=True).count()
+
+    def list_active_sitemap_rows(
+        self, offset: int, limit: int
+    ) -> List[Tuple[str, Optional[datetime]]]:
+        """``(slug, updated_at)`` of active products, one stable ``id``-ordered page.
+
+        Selects the two columns only, so a 50k-row sitemap chunk never builds
+        ``Product`` entities nor triggers their ``selectin`` relationship loads.
+        Same filter as ``count_active`` (the sitemap ``count()``).
+        """
+        return [
+            (slug, updated_at)
+            for slug, updated_at in self._session.query(
+                Product.slug, Product.updated_at
+            )
+            .filter(Product.is_active.is_(True))
+            .order_by(Product.id)
+            .offset(offset)
+            .limit(limit)
+        ]
 
     def search(self, query: str, page: int = 1, per_page: int = 20) -> List[Product]:
         pattern = f"%{query}%"

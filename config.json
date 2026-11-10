@@ -8,5 +8,7 @@
   "tax_included_in_price": true,
   "max_cart_items": 50,
   "guest_checkout_enabled": true,
-  "marketplace_enabled": false
+  "marketplace_enabled": false,
+  "seo_index_products": true,
+  "seo_index_categories": false
 }

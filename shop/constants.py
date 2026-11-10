@@ -9,3 +9,10 @@ the literal by a contract test (DRY without inverting the dependency arrow).
 """
 
 VENDOR_ID_KEY = "vendor_id"
+
+# Public storefront routes (fe-user ``plugins/shop/index.ts`` and theme_shop
+# mount the same fixed paths). The single home for every backend surface that
+# links to a product or category page: search hits, sitemap providers.
+STOREFRONT_PATH = "/shop"
+PRODUCT_PATH_TEMPLATE = STOREFRONT_PATH + "/product/{slug}"
+CATEGORY_PATH_TEMPLATE = STOREFRONT_PATH + "/category/{slug}"

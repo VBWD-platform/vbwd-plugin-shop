@@ -23,3 +23,12 @@ def shop_config() -> Dict[str, Any]:
 def marketplace_enabled() -> bool:
     """Whether vendor-mode (self-service vendor routes + checkout stamp) is on."""
     return bool(shop_config().get("marketplace_enabled", False))
+
+
+SEO_INDEX_PRODUCTS_KEY = "seo_index_products"
+SEO_INDEX_CATEGORIES_KEY = "seo_index_categories"
+
+
+def seo_indexing_enabled(config_key: str) -> bool:
+    """Whether the fe-admin "indexable" switch ``config_key`` is on (S154 D7)."""
+    return bool(shop_config().get(config_key, False))
