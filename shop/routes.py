@@ -14,7 +14,12 @@ from vbwd.middleware.auth import (
 )
 
 from plugins.shop.shop.constants import VENDOR_ID_KEY
-from plugins.shop.shop.services.plugin_config import marketplace_enabled
+from plugins.shop.shop.services.plugin_config import (
+    SEO_INDEX_CATEGORIES_KEY,
+    SEO_INDEX_PRODUCTS_KEY,
+    marketplace_enabled,
+    seo_indexing_enabled,
+)
 from plugins.shop.shop.repositories.product_repository import ProductRepository
 from plugins.shop.shop.repositories.product_variant_repository import (
     ProductVariantRepository,
@@ -471,7 +476,11 @@ def list_product_tag_options():
 
 @shop_bp.route("/api/v1/shop/products/<slug>", methods=["GET"])
 def get_product(slug):
-    """Product detail with images, variants, stock status."""
+    """Product detail with images, variants, stock status.
+
+    ``seo_indexable`` is the ``seo_index_products`` switch (S154 D7): ``false``
+    ⇒ the frontends render the page ``noindex,follow``.
+    """
     repo = ProductRepository(db.session)
     product = repo.find_by_slug(slug)
     if not product:
@@ -479,6 +488,7 @@ def get_product(slug):
 
     stock_repo = WarehouseStockRepository(db.session)
     product_dict = product.to_dict()
+    product_dict["seo_indexable"] = seo_indexing_enabled(SEO_INDEX_PRODUCTS_KEY)
     product_dict["pricing"] = ProductPricingService(
         current_app.container.price_factory()
     ).get_product_pricing_payload(product)
@@ -525,12 +535,17 @@ def list_categories():
 
 @shop_bp.route("/api/v1/shop/categories/<slug>", methods=["GET"])
 def get_category(slug):
-    """Category detail with products."""
+    """Category detail with products.
+
+    ``seo_indexable`` is the ``seo_index_categories`` switch (S154 D7).
+    """
     repo = ProductCategoryRepository(db.session)
     category = repo.find_by_slug(slug)
     if not category:
         return jsonify({"error": "Category not found"}), 404
-    return jsonify({"category": category.to_dict()}), 200
+    category_dict = category.to_dict()
+    category_dict["seo_indexable"] = seo_indexing_enabled(SEO_INDEX_CATEGORIES_KEY)
+    return jsonify({"category": category_dict}), 200
 
 
 # ── Public: Product types (S116.1) ───────────────────────────────────────
