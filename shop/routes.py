@@ -28,6 +28,11 @@ from plugins.shop.shop.repositories.product_category_repository import (
     ProductCategoryRepository,
 )
 from plugins.shop.shop.services.product_copy_service import ProductCopyService
+from plugins.shop.shop.services.seo_indexnow import (
+    notify_category_changed,
+    notify_product_changed,
+    notify_products_changed,
+)
 from plugins.shop.shop.repositories.warehouse_stock_repository import (
     WarehouseStockRepository,
 )
@@ -236,6 +241,7 @@ def _create_product_from_payload(data, *, vendor_id=None):
             return None, (jsonify({"error": str(tax_error)}), 400)
 
     repo.save(product)
+    notify_product_changed(product.slug)
     return product, None
 
 
@@ -287,6 +293,7 @@ def _apply_product_update(product, data):
         product.type_field_values = type_values
 
     ProductRepository(db.session).save(product)
+    notify_product_changed(product.slug)
     return None
 
 
@@ -317,6 +324,7 @@ def _create_category_from_payload(data):
         sort_order=int(data.get("sort_order", 0)),
     )
     repo.save(category)
+    notify_category_changed(category.slug)
     return category, None
 
 
@@ -685,7 +693,9 @@ def admin_delete_product(product_id):
     product = repo.find_by_id(product_id)
     if not product:
         return jsonify({"error": "Product not found"}), 404
-    repo.delete(product)
+    product_slug = product.slug
+    repo.delete(product.id)
+    notify_product_changed(product_slug)
     return jsonify({"message": "Product deleted"}), 200
 
 
@@ -1009,6 +1019,7 @@ def admin_update_category(category_id):
         if field_name in data:
             setattr(category, field_name, data[field_name])
     repo.save(category)
+    notify_category_changed(category.slug)
     return jsonify({"category": category.to_dict()}), 200
 
 
@@ -1022,7 +1033,9 @@ def admin_delete_category(category_id):
     category = repo.find_by_id(category_id)
     if not category:
         return jsonify({"error": "Category not found"}), 404
-    repo.delete(category)
+    category_slug = category.slug
+    repo.delete(category.id)
+    notify_category_changed(category_slug)
     return jsonify({"message": "Category deleted"}), 200
 
 
@@ -1122,7 +1135,9 @@ def vendor_delete_product(product_id):
     if str(product.vendor_id) != str(g.user_id):
         return jsonify({"error": "You do not own this product"}), 403
 
+    product_slug = product.slug
     repo.delete(product.id)
+    notify_product_changed(product_slug)
     return jsonify({"success": True}), 200
 
 
@@ -1191,6 +1206,7 @@ def vendor_update_category(category_id):
         if field_name in data:
             setattr(category, field_name, data[field_name])
     repo.save(category)
+    notify_category_changed(category.slug)
     return jsonify({"category": category.to_dict()}), 200
 
 
@@ -1208,7 +1224,9 @@ def vendor_delete_category(category_id):
     if not category:
         return jsonify({"error": "Category not found"}), 404
 
+    category_slug = category.slug
     repo.delete(category.id)
+    notify_category_changed(category_slug)
     return jsonify({"success": True}), 200
 
 
@@ -1745,11 +1763,14 @@ def admin_bulk_delete_products():
 
     repo = ProductRepository(db.session)
     deleted = 0
+    deleted_slugs = []
     for pid in product_ids:
         product = repo.find_by_id(pid)
         if product:
-            repo.delete(product)
+            deleted_slugs.append(product.slug)
+            repo.delete(product.id)
             deleted += 1
+    notify_products_changed(deleted_slugs)
     return jsonify({"deleted": deleted}), 200
 
 
@@ -1795,12 +1816,15 @@ def admin_bulk_activate_products():
     product_ids = data.get("product_ids", [])
     repo = ProductRepository(db.session)
     updated = 0
+    updated_slugs = []
     for pid in product_ids:
         product = repo.find_by_id(pid)
         if product:
             product.is_active = True
             repo.save(product)
+            updated_slugs.append(product.slug)
             updated += 1
+    notify_products_changed(updated_slugs)
     return jsonify({"updated": updated}), 200
 
 
@@ -1814,12 +1838,15 @@ def admin_bulk_deactivate_products():
     product_ids = data.get("product_ids", [])
     repo = ProductRepository(db.session)
     updated = 0
+    updated_slugs = []
     for pid in product_ids:
         product = repo.find_by_id(pid)
         if product:
             product.is_active = False
             repo.save(product)
+            updated_slugs.append(product.slug)
             updated += 1
+    notify_products_changed(updated_slugs)
     return jsonify({"updated": updated}), 200
 
 
